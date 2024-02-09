@@ -945,6 +945,15 @@ class FoxESSEnergySolar(FoxESSEnergy):
             return round(energysolar,3)
         return None
 
+def getValueFromCoordinator(coordinator, report_field, value_field):
+    value = coordinator.data[report_field].get(value_field)
+    return float(value) if value is not None else 0
+
+def getValuesFromCoordinator(coordinator, report_field, value_fields):
+    return (
+        getValueFromCoordinator(coordinator, report_field, field)
+        for field in value_fields
+    )
 
 class FoxESSSolarPower(FoxESSPower):
     def __init__(self, coordinator, name, deviceID):
@@ -955,36 +964,19 @@ class FoxESSSolarPower(FoxESSPower):
     @property
     def native_value(self) -> float | None:
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
-            if "loadsPower" not in self.coordinator.data["raw"]:
-                loads = 0
-            else:
-                loads = float(self.coordinator.data["raw"]["loadsPower"])
-
-            if "batChargePower" not in self.coordinator.data["raw"]:
-                charge = 0
-            else:
-                if self.coordinator.data["raw"]["batChargePower"] is None:
-                    charge = 0
-                else:
-                    charge = float(self.coordinator.data["raw"]["batChargePower"])
-
-            if "feedinPower" not in self.coordinator.data["raw"]:
-                feedin = 0
-            else:
-                feedIn = float(self.coordinator.data["raw"]["feedinPower"])
-
-            if "gridConsumptionPower" not in self.coordinator.data["raw"]:
-                gridConsumption = 0
-            else:
-                gridConsumption = float(self.coordinator.data["raw"]["gridConsumptionPower"])
-
-            if "batDischargePower" not in self.coordinator.data["raw"]:
-                discharge = 0
-            else:
-                if self.coordinator.data["raw"]["batDischargePower"] is None:
-                    discharge = 0
-                else:
-                    discharge = float(self.coordinator.data["raw"]["batDischargePower"])
+            loads, charge, feedIn, gridConsumption, discharge = (
+                getValuesFromCoordinator(
+                    self.coordinator,
+                    "raw",
+                    [
+                        "loadsPower",
+                        "batChargePower",
+                        "feedinPower",
+                        "gridConsumptionPower",
+                        "batDischargePower",
+                    ],
+                )
+            )
 
             #check if what was returned (that some time was negative) is <0, so fix it
             total = (loads + charge + feedIn - gridConsumption - discharge)
