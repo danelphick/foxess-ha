@@ -258,6 +258,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         FoxESSBatMinSoC(coordinator, name, deviceID),
         FoxESSBatMinSoConGrid(coordinator, name, deviceID),
         FoxESSSolarPower(coordinator, name, deviceID),
+        FoxESSNewSolarPower(coordinator, name, deviceID),
         FoxESSEnergySolar(coordinator, name, deviceID),
         FoxESSInverter(coordinator, name, deviceID),
         FoxESSPower(coordinator, name, deviceID, prefix="Generation", value_field="generationPower",
@@ -925,7 +926,7 @@ class FoxESSEnergySolar(FoxESSEnergy):
                 charge = float(self.coordinator.data["report"]["chargeEnergyToTal"])
 
             if "feedin" not in self.coordinator.data["report"]:
-                feedin = 0
+                feedIn = 0
             else:
                 feedIn = float(self.coordinator.data["report"]["feedin"])
 
@@ -984,6 +985,106 @@ class FoxESSSolarPower(FoxESSPower):
                 total=0
             return round(total,3)
         return None
+
+
+class FoxESSNewSolarPower(FoxESSPower):
+    def __init__(self, coordinator, name, deviceID):
+        super().__init__(
+            coordinator=coordinator, name=name, deviceID=deviceID, prefix="New Solar"
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        if not self.coordinator.data["online"] or not self.coordinator.data["raw"]:
+            return None
+        (
+            loads,
+            charge,
+            feedIn,
+            gridConsumption,
+            discharge,
+            secondInverter,
+            inverterOutput,
+            pv,
+        ) = getValuesFromCoordinator(
+            self.coordinator,
+            "raw",
+            [
+                "loadsPower",
+                "batChargePower",
+                "feedin",
+                "gridConsumptionPower",
+                "batDischargePower",
+                "meterPower2",
+                "generationPower",
+                "pvPower",
+            ],
+        )
+
+        _LOGGER.debug("New Solar Power:\n")
+        _LOGGER.debug("  loads:           %.3f", loads)
+        _LOGGER.debug("  charge:          %.3f", charge)
+        _LOGGER.debug("  feedIn:          %.3f", feedIn)
+        _LOGGER.debug("  gridConsumption: %.3f", gridConsumption)
+        _LOGGER.debug("  discharge:       %.3f", discharge)
+        _LOGGER.debug("  secondInverter:  %.3f", secondInverter)
+        _LOGGER.debug("  inverterOutput:  %.3f", inverterOutput)
+        _LOGGER.debug("  pv:              %.3f", pv)
+
+        # The second inverter always reports a negative value indicating that it's generating, 0 or
+        # sometimes a tiny positive number.
+        secondInverter = -secondInverter
+
+        if inverterOutput >= 0:
+            if pv + discharge > 0:
+                pvRatio = pv / (pv + discharge)
+                return round(pvRatio * inverterOutput + secondInverter, 3)
+            return 0
+        else:
+            # Battery cannot be discharging as there is power feeding into the inverter either from the
+            # second inverter or the grid.
+            inverterOutput = -inverterOutput
+            # Some will be coming from pv, some from secondInverter and some from gridConsumption
+
+            # Divert grid power to cover the load first with the remainder going to the inverter.
+            gridLoad = min(gridConsumption, loads)
+            gridConsumption -= gridLoad
+            loads -= gridLoad
+            if loads > 0:
+                # Remaining load is covered by secondInverter
+                meter2Load = min(secondInverter, loads)
+                secondInverter -= meter2Load
+                loads -= meter2Load
+                meter2Load = round(meter2Load, 3)
+            else:
+                meter2Load = 0
+
+            if feedIn > 0:
+                # feedin is covered by secondInverter (as the main inverter has negative power)
+                meter2Feedin = min(secondInverter, feedIn)
+                secondInverter -= meter2Feedin
+                feedIn -= meter2Feedin
+                meter2Feedin = round(meter2Feedin, 3)
+            else:
+                meter2Feedin = 0
+
+
+            totalExternalInput = gridConsumption + secondInverter
+            if totalExternalInput > 0:
+                gridRatio = gridConsumption / (gridConsumption + secondInverter)
+            else:
+                gridRatio = 0
+
+            gridExternalInput = inverterOutput * gridRatio
+            meter2ExternalInput = inverterOutput * (1 - gridRatio)
+            totalPvChargeRatio = (meter2ExternalInput + pv) / (
+                meter2ExternalInput + pv + gridExternalInput
+            )
+            pvCharge = max(0, round(totalPvChargeRatio * charge, 3))
+            if pvCharge < 0.01:
+                pvCharge = 0
+            return round(pvCharge + meter2Load + meter2Feedin, 3)
+
 
 class FoxESSBatState(FoxESSSimpleSensor):
     def __init__(self, coordinator, name, deviceID, entity_type, report_field, value_field):
