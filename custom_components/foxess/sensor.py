@@ -270,6 +270,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         FoxESSPower(coordinator, name, deviceID, prefix="FeedIn", unique_name="feedIn-power", value_field="feedinPower"),
         FoxESSPower(coordinator, name, deviceID, prefix="Bat Discharge", value_field="batDischargePower"),
         FoxESSPower(coordinator, name, deviceID, prefix="Bat Charge", value_field="batChargePower"),
+        FoxESSNewBatDischargePower(coordinator, name, deviceID),
         FoxESSPower(coordinator, name, deviceID, prefix="Load", value_field="loadsPower"),
         FoxESSEnergy(coordinator, name, deviceID, entity_type="Energy Generated", report_field="reportDailyGeneration", value_field="value"),
         FoxESSEnergy(coordinator, name, deviceID, entity_type="Grid Consumption", report_field="report", value_field="gridConsumption"),
@@ -1085,6 +1086,43 @@ class FoxESSNewSolarPower(FoxESSPower):
                 pvCharge = 0
             return round(pvCharge + meter2Load + meter2Feedin, 3)
 
+
+class FoxESSNewBatDischargePower(FoxESSSimpleSensor):
+    def __init__(self, coordinator, name, deviceID):
+        super().__init__(coordinator=coordinator, name=name, deviceID=deviceID, prefix="New Bat Discharge")
+
+    @property
+    def native_value(self) -> float | None:
+        if not self.coordinator.data["online"] or not self.coordinator.data["raw"]:
+            return None
+        (
+            discharge,
+            inverterOutput,
+            pv,
+        ) = getValuesFromCoordinator(
+            self.coordinator,
+            "raw",
+            [
+                "batDischargePower",
+                "generationPower",
+                "pvPower",
+            ],
+        )
+
+        _LOGGER.debug("New Discharge Power:\n")
+        _LOGGER.debug("  discharge:       %.3f", discharge)
+        _LOGGER.debug("  inverterOutput:  %.3f", inverterOutput)
+        _LOGGER.debug("  pv:              %.3f", pv)
+
+        if inverterOutput >= 0:
+            if pv + discharge > 0:
+                dischargeRatio = discharge / (pv + discharge)
+                return round(dischargeRatio * inverterOutput, 3)
+            return 0
+        else:
+            # Battery cannot be discharging as there is power feeding into the inverter either from the
+            # second inverter or the grid.
+            return 0
 
 class FoxESSBatState(FoxESSSimpleSensor):
     def __init__(self, coordinator, name, deviceID, entity_type, report_field, value_field):
