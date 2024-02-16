@@ -1035,6 +1035,10 @@ class FoxESSNewSolarPower(FoxESSPower):
         # The second inverter always reports a negative value indicating that it's generating, 0 or
         # sometimes a tiny positive number.
         secondInverter = -secondInverter
+        # The second inverter can consume power when not generating. For now, we set it to 0 in
+        # these cases, but ideally we'd create a new category called inverter loss and put it there
+        # or add it directly to the load.
+        secondInverter = max(0, secondInverter)
 
         if inverterOutput >= 0:
             if pv + discharge > 0:
@@ -1087,7 +1091,7 @@ class FoxESSNewSolarPower(FoxESSPower):
             return round(pvCharge + meter2Load + meter2Feedin, 3)
 
 
-class FoxESSNewBatDischargePower(FoxESSSimpleSensor):
+class FoxESSNewBatDischargePower(FoxESSPower):
     def __init__(self, coordinator, name, deviceID):
         super().__init__(coordinator=coordinator, name=name, deviceID=deviceID, prefix="New Bat Discharge")
 
@@ -1120,8 +1124,8 @@ class FoxESSNewBatDischargePower(FoxESSSimpleSensor):
                 return round(dischargeRatio * inverterOutput, 3)
             return 0
         else:
-            # Battery cannot be discharging as there is power feeding into the inverter either from the
-            # second inverter or the grid.
+            # Battery cannot be discharging as there is power feeding into the inverter either from
+            # the second inverter or the grid.
             return 0
 
 class FoxESSBatState(FoxESSSimpleSensor):
