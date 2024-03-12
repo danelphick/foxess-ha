@@ -92,7 +92,7 @@ RETRY_NEXT_SLOT = -1
 DEFAULT_NAME = "FoxESS"
 DEFAULT_VERIFY_SSL = False # True
 
-SCAN_MINUTES = 1 # number of minutes betwen API requests 
+SCAN_MINUTES = 1 # number of minutes betwen API requests
 SCAN_INTERVAL = timedelta(minutes=SCAN_MINUTES)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -142,7 +142,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         TimeSlice[deviceSN] = TSlice
         if (TSlice % 5 == 0):
             _LOGGER.debug(f"TimeSlice Main Poll, interval: {deviceSN}, {TimeSlice[deviceSN]}")
-    
+
             # try the openapi see if we get a response
             if TSlice==0: # get device detail at startup, then every 30 minutes to save api calls
                 addfail = await getOADeviceDetail(hass, allData, deviceSN, apiKey)
@@ -155,7 +155,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                 else:
                     statetest = 0
                 _LOGGER.debug(f" Statetest {statetest}")
-                
+
                 if statetest in [1,2,3]:
                     allData["online"] = True
                     if TSlice==0:
@@ -189,7 +189,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             else:
                 _LOGGER.warning(f"{name} has Cloud timeout or the Inverter is off-line, connection will be retried in 1 minute.")
                 TSlice=RETRY_NEXT_SLOT # failed to get data so try again in a minute
-                
+
         # actions here are every minute
         if TSlice==30:
             TSlice=RETRY_NEXT_SLOT # reset timeslice and start again from 0
@@ -416,18 +416,18 @@ async def getReport(hass, allData, apiKey, deviceSN, deviceID):
     now = datetime.now()
 
     reportData = '{"sn":"'+deviceSN+'","year":'+now.strftime("%Y")+',"month":'+now.strftime("%_m")+',"dimension":"month","variables":["feedin","generation","gridConsumption","chargeEnergyToTal","dischargeEnergyToTal","loads"]}'
-    _LOGGER.debug("getReport OA request:" + reportData) 
+    _LOGGER.debug("getReport OA request:" + reportData)
 
     restOAReport = RestData(
-        hass, 
-        METHOD_POST, 
-        path, 
-        DEFAULT_ENCODING,  
-        None, 
-        headerData, 
-        None, 
-        reportData, 
-        DEFAULT_VERIFY_SSL, 
+        hass,
+        METHOD_POST,
+        path,
+        DEFAULT_ENCODING,
+        None,
+        headerData,
+        None,
+        reportData,
+        DEFAULT_VERIFY_SSL,
         SSLCipherList.PYTHON_DEFAULT,
         DEFAULT_TIMEOUT
     )
@@ -444,7 +444,7 @@ async def getReport(hass, allData, apiKey, deviceSN, deviceID):
             _LOGGER.debug(f"OA Report Data fetched OK: {response} "+ restOAReport.data[:350])
             result = json.loads(restOAReport.data)['result']
             today = int(now.strftime("%_d")) # need today as an integer to locate in the monthly report index
-            for item in result: 
+            for item in result:
                 variableName = item['variable']
                 # Daily reports break down the data hour by month for each day
                 # so locate the current days index and use that as the sum
@@ -480,18 +480,18 @@ async def getReportDailyGeneration(hass, allData, apiKey, deviceSN, deviceID):
 
     generationData = '{"sn":"'+deviceSN+'","dimension":"day"}'
 
-    _LOGGER.debug("getReportDailyGeneration OA request:" + generationData) 
+    _LOGGER.debug("getReportDailyGeneration OA request:" + generationData)
 
     restOAgen = RestData(
-        hass, 
-        METHOD_GET, 
-        path + deviceSN, 
-        DEFAULT_ENCODING,  
-        None, 
-        headerData, 
-        None, 
-        generationData, 
-        DEFAULT_VERIFY_SSL, 
+        hass,
+        METHOD_GET,
+        path + deviceSN,
+        DEFAULT_ENCODING,
+        None,
+        headerData,
+        None,
+        generationData,
+        DEFAULT_VERIFY_SSL,
         SSLCipherList.PYTHON_DEFAULT,
         DEFAULT_TIMEOUT
     )
@@ -542,21 +542,21 @@ async def getRaw(hass, allData, apiKey, deviceSN, deviceID):
                                     "TCurrent","TFreq","TPower","TVolt", \
                                     "ResidualEnergy", "todayYield"] }'
 
-    _LOGGER.debug("getRaw OA request:" +rawData) 
+    _LOGGER.debug("getRaw OA request:" +rawData)
 
     path = _ENDPOINT_OA_DOMAIN + _ENDPOINT_OA_DEVICE_VARIABLES
     _LOGGER.debug("OADevice Variables fetch " + path )
 
     restOADeviceVariables = RestData(
-        hass, 
-        METHOD_POST, 
-        path, 
-        DEFAULT_ENCODING,  
-        None, 
-        headerData, 
-        None, 
-        rawData, 
-        DEFAULT_VERIFY_SSL, 
+        hass,
+        METHOD_POST,
+        path,
+        DEFAULT_ENCODING,
+        None,
+        headerData,
+        None,
+        rawData,
+        DEFAULT_VERIFY_SSL,
         SSLCipherList.PYTHON_DEFAULT,
         DEFAULT_TIMEOUT
     )
@@ -576,7 +576,7 @@ async def getRaw(hass, allData, apiKey, deviceSN, deviceID):
             # allData['raw'] = {}
             for item in result: # json.loads(result): # restOADeviceVariables.data)['result']:
                 variableName = item['variable']
-                # If value exists 
+                # If value exists
                 if item.get('value') is not None:
                     variableValue = item['value']
                 else:
@@ -1252,7 +1252,7 @@ class FoxESSMeter2Power(CoordinatorEntity, SensorEntity):
                 _LOGGER.debug("meterPower2 None")
             else:
                 return self.coordinator.data["raw"]["meterPower2"]
-        return None 
+        return None
 
 
 class FoxESSRVolt(CoordinatorEntity, SensorEntity):
@@ -1789,7 +1789,7 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
                     else:
                         return "off-line"
         return None
-        
+
     @property
     def extra_state_attributes(self):
         if self.coordinator.data["online"]:
