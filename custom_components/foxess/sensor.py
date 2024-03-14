@@ -789,7 +789,7 @@ class FoxESSEnergy(FoxESSSimpleSensor):
             deviceID=deviceID,
             device_class=SensorDeviceClass.ENERGY,
             sensor_state_class=SensorStateClass.TOTAL_INCREASING,
-            unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+            unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
             entity_type=entity_type,
             unique_name=unique_name,
             report_field=report_field,
