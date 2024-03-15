@@ -1043,7 +1043,7 @@ class FoxESSNewSolarPower(FoxESSPower):
         if inverterOutput >= 0:
             if pv + discharge > 0:
                 pvRatio = pv / (pv + discharge)
-                return round(pvRatio * inverterOutput + secondInverter, 3)
+                return round(pvRatio * inverterOutput + secondInverter + charge, 3)
             return 0
         else:
             # Battery cannot be discharging as there is power feeding into the inverter either from the
