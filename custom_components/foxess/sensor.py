@@ -1013,7 +1013,7 @@ class FoxESSNewSolarPower(FoxESSPower):
             [
                 "loadsPower",
                 "batChargePower",
-                "feedin",
+                "feedinPower",
                 "gridConsumptionPower",
                 "batDischargePower",
                 "meterPower2",
@@ -1073,13 +1073,16 @@ class FoxESSNewSolarPower(FoxESSPower):
             else:
                 meter2Feedin = 0
 
-
+            # Calculate ratio of power entering the main inverter from outside that came from the
+            # grid.
             totalExternalInput = gridConsumption + secondInverter
             if totalExternalInput > 0:
                 gridRatio = gridConsumption / (gridConsumption + secondInverter)
             else:
                 gridRatio = 0
 
+            # Attribute the amount of power that is charging the battery according to whether it has
+            # come from PV (both direct and external) or from the grid.
             gridExternalInput = inverterOutput * gridRatio
             meter2ExternalInput = inverterOutput * (1 - gridRatio)
             totalPvChargeRatio = (meter2ExternalInput + pv) / (
