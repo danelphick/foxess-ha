@@ -925,7 +925,7 @@ class FoxESSEnergySolar(FoxESSEnergy):
                 charge = float(self.coordinator.data["report"]["chargeEnergyToTal"])
 
             if "feedin" not in self.coordinator.data["report"]:
-                feedin = 0
+                feedIn = 0
             else:
                 feedIn = float(self.coordinator.data["report"]["feedin"])
 
