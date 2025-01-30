@@ -36,6 +36,7 @@ from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfFrequency,
     POWER_VOLT_AMPERE_REACTIVE,
+    PERCENTAGE,
 )
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
@@ -250,6 +251,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         FoxESSPower(coordinator, name, deviceID, prefix="T"),
         FoxESSVolt(coordinator, name, deviceID, prefix="T"),
         FoxESSReactivePower(coordinator, name, deviceID),
+        FoxESSPowerFactor(coordinator, name, deviceID),
         FoxESSTemperature(coordinator, name, deviceID, prefix="bat"),
         FoxESSTemperature(coordinator, name, deviceID, prefix="ambient", value_field="ambientTemperation"),
         FoxESSTemperature(coordinator, name, deviceID, prefix="boost", value_field="boostTemperation"),
@@ -832,12 +834,33 @@ class FoxESSEnergyLoad(FoxESSEnergy):
             value_field="loads",
         )
 
+
+class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
+
+    _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
+    _attr_device_class = SensorDeviceClass.POWER_FACTOR
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, coordinator, name, deviceID):
+        super().__init__(coordinator=coordinator)
+        _LOGGER.debug("Initiating Entity - Power Factor")
+        self._attr_name = name+" - Power Factor"
+        self._attr_unique_id = deviceID+"power-factor"
+        self.status = namedtuple(
+            "status",
+            [
+                ATTR_DATE,
+                ATTR_TIME,
+            ],
+        )
+
     @property
-    def native_value(self) -> str | None:
-        energyload = super().native_value
-        if energyload is not None:
-            # was getting an error on round() when load was None, changed it to 0
-            return round(energyload,3)
+    def native_value(self) -> float | None:
+        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
+            if "PowerFactor" not in self.coordinator.data["raw"]:
+                _LOGGER.debug("PowerFactor None")
+            else:
+                return self.coordinator.data["raw"]["PowerFactor"]
         return None
 
 
@@ -901,6 +924,26 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
                     #ATTR_FEEDINDATE: self.coordinator.data["addressbook"]["result"][ATTR_FEEDINDATE],
                     ATTR_LASTCLOUDSYNC: datetime.now()
                 }
+        return None
+
+
+class FoxESSEnergyLoad(FoxESSEnergy):
+    def __init__(self, coordinator, name, deviceID):
+        super().__init__(
+            coordinator=coordinator,
+            name=name,
+            deviceID=deviceID,
+            entity_type="Load",
+            report_field="report",
+            value_field="loads",
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        energyload = super().native_value
+        if energyload is not None:
+            # was getting an error on round() when load was None, changed it to 0
+            return round(energyload,3)
         return None
 
 
@@ -1329,3 +1372,12 @@ class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
                     re = 0
                 return re
         return None
+
+
+def add_separator_between_uppercase(input_string, separator):
+    new_string = ""
+    for char in input_string:
+        if char.isupper() and new_string:
+            new_string += separator
+        new_string += char
+    return new_string
