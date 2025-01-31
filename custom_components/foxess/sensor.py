@@ -307,6 +307,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         FoxESSBatMinSoC(coordinator, name, deviceID),
         FoxESSBatMinSoConGrid(coordinator, name, deviceID),
         FoxESSSolarPower(coordinator, name, deviceID),
+        FoxESSNewSolarPower(coordinator, name, deviceID),
         FoxESSEnergyThroughput(coordinator, name, deviceID),
         FoxESSEnergySolar(coordinator, name, deviceID),
         FoxESSInverter(coordinator, name, deviceID),
@@ -314,6 +315,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         FoxESSPowerString(coordinator, name, deviceID, "Grid Consumption Power", "grid-consumption-power", "gridConsumptionPower"),
         FoxESSPowerString(coordinator, name, deviceID, "FeedIn Power", "feedIn-power", "feedinPower"),
         FoxESSPowerString(coordinator, name, deviceID, "Bat Discharge Power", "bat-discharge-power", "batDischargePower"),
+        FoxESSNewBatDischargePower(coordinator, name, deviceID),
         FoxESSPowerString(coordinator, name, deviceID, "Bat Charge Power", "bat-charge-power", "batChargePower"),
         FoxESSPowerString(coordinator, name, deviceID, "Load Power", "load-power", "loadsPower"),
         FoxESSEnergyGenerated(coordinator, name, deviceID, "Energy Generated", "energy-generated", "value"),
@@ -1346,6 +1348,18 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
         return round(energysolar,3)
 
 
+def getValueFromCoordinator(coordinator, report_field, value_field):
+    value = coordinator.data[report_field].get(value_field)
+    return float(value) if value is not None else 0
+
+
+def getValuesFromCoordinator(coordinator, report_field, value_fields):
+    return (
+        getValueFromCoordinator(coordinator, report_field, field)
+        for field in value_fields
+    )
+
+
 class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
 
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
@@ -1355,8 +1369,8 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID):
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Solar Power")
-        self._attr_name = name+" - Solar Power"
-        self._attr_unique_id = deviceID+"solar-power"
+        self._attr_name = name + " - Solar Power"
+        self._attr_unique_id = deviceID + "solar-power"
         self.status = namedtuple(
             "status",
             [
@@ -1367,42 +1381,194 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        if "loadsPower" not in self.coordinator.data["raw"]:
-            loads = 0
-        else:
-            loads = float(self.coordinator.data["raw"]["loadsPower"])
+        loads, charge, feedIn, gridConsumption, discharge = getValuesFromCoordinator(
+            self.coordinator,
+            "raw",
+            [
+                "loadsPower",
+                "batChargePower",
+                "feedinPower",
+                "gridConsumptionPower",
+                "batDischargePower",
+            ],
+        )
 
-        if "batChargePower" not in self.coordinator.data["raw"]:
-            charge = 0
+        # check if what was returned (that some time was negative) is <0, so fix it
+        total = loads + charge + feedIn - gridConsumption - discharge
+        if total < 0:
+            total = 0
+        return round(total, 3)
+
+
+class FoxESSNewSolarPower(CoordinatorEntity, SensorEntity):
+
+    _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+
+    def __init__(self, coordinator, name, deviceID):
+        super().__init__(coordinator=coordinator)
+        _LOGGER.debug("Initiating Entity - New Solar Power")
+        self._attr_name = name + " - New Solar Power"
+        self._attr_unique_id = deviceID + "new-solar-power"
+        self.status = namedtuple(
+            "status",
+            [
+                ATTR_DATE,
+                ATTR_TIME,
+            ],
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        if not self.coordinator.data["online"] or not self.coordinator.data["raw"]:
+            return None
+        (
+            loads,
+            charge,
+            feedIn,
+            gridConsumption,
+            discharge,
+            secondInverter,
+            inverterOutput,
+            pv,
+        ) = getValuesFromCoordinator(
+            self.coordinator,
+            "raw",
+            [
+                "loadsPower",
+                "batChargePower",
+                "feedinPower",
+                "gridConsumptionPower",
+                "batDischargePower",
+                "meterPower2",
+                "generationPower",
+                "pvPower",
+            ],
+        )
+
+        _LOGGER.debug("New Solar Power:\n")
+        _LOGGER.debug("  loads:           %.3f", loads)
+        _LOGGER.debug("  charge:          %.3f", charge)
+        _LOGGER.debug("  feedIn:          %.3f", feedIn)
+        _LOGGER.debug("  gridConsumption: %.3f", gridConsumption)
+        _LOGGER.debug("  discharge:       %.3f", discharge)
+        _LOGGER.debug("  secondInverter:  %.3f", secondInverter)
+        _LOGGER.debug("  inverterOutput:  %.3f", inverterOutput)
+        _LOGGER.debug("  pv:              %.3f", pv)
+
+        # The second inverter always reports a negative value indicating that it's generating, 0 or
+        # sometimes a tiny positive number.
+        secondInverter = -secondInverter
+        # The second inverter can consume power when not generating. For now, we set it to 0 in
+        # these cases, but ideally we'd create a new category called inverter loss and put it there
+        # or add it directly to the load.
+        secondInverter = max(0, secondInverter)
+
+        if inverterOutput >= 0:
+            if pv + discharge > 0:
+                pvRatio = pv / (pv + discharge)
+                return round(pvRatio * inverterOutput + secondInverter + charge, 3)
+            return 0
         else:
-            if self.coordinator.data["raw"]["batChargePower"] is None:
-                charge = 0
+            # Battery cannot be discharging as there is power feeding into the inverter either from the
+            # second inverter or the grid.
+            inverterOutput = -inverterOutput
+            # Some will be coming from pv, some from secondInverter and some from gridConsumption
+
+            # Divert grid power to cover the load first with the remainder going to the inverter.
+            gridLoad = min(gridConsumption, loads)
+            gridConsumption -= gridLoad
+            loads -= gridLoad
+            if loads > 0:
+                # Remaining load is covered by secondInverter
+                meter2Load = min(secondInverter, loads)
+                secondInverter -= meter2Load
+                loads -= meter2Load
+                meter2Load = round(meter2Load, 3)
             else:
-                charge = float(self.coordinator.data["raw"]["batChargePower"])
+                meter2Load = 0
 
-        if "feedinPower" not in self.coordinator.data["raw"]:
-            feedIn = 0
-        else:
-            feedIn = float(self.coordinator.data["raw"]["feedinPower"])
-
-        if "gridConsumptionPower" not in self.coordinator.data["raw"]:
-            gridConsumption = 0
-        else:
-            gridConsumption = float(self.coordinator.data["raw"]["gridConsumptionPower"])
-
-        if "batDischargePower" not in self.coordinator.data["raw"]:
-            discharge = 0
-        else:
-            if self.coordinator.data["raw"]["batDischargePower"] is None:
-                discharge = 0
+            if feedIn > 0:
+                # feedin is covered by secondInverter (as the main inverter has negative power)
+                meter2Feedin = min(secondInverter, feedIn)
+                secondInverter -= meter2Feedin
+                feedIn -= meter2Feedin
+                meter2Feedin = round(meter2Feedin, 3)
             else:
-                discharge = float(self.coordinator.data["raw"]["batDischargePower"])
+                meter2Feedin = 0
 
-        #check if what was returned (that some time was negative) is <0, so fix it
-        total = (loads + charge + feedIn - gridConsumption - discharge)
-        if total<0:
-            total=0
-        return round(total,3)
+            # Calculate ratio of power entering the main inverter from outside that came from the
+            # grid.
+            totalExternalInput = gridConsumption + secondInverter
+            if totalExternalInput > 0:
+                gridRatio = gridConsumption / (gridConsumption + secondInverter)
+            else:
+                gridRatio = 0
+
+            # Attribute the amount of power that is charging the battery according to whether it has
+            # come from PV (both direct and external) or from the grid.
+            gridExternalInput = inverterOutput * gridRatio
+            meter2ExternalInput = inverterOutput * (1 - gridRatio)
+            totalPvChargeRatio = (meter2ExternalInput + pv) / (
+                meter2ExternalInput + pv + gridExternalInput
+            )
+            pvCharge = max(0, round(totalPvChargeRatio * charge, 3))
+            if pvCharge < 0.01:
+                pvCharge = 0
+            return round(pvCharge + meter2Load + meter2Feedin, 3)
+
+
+class FoxESSNewBatDischargePower(CoordinatorEntity, SensorEntity):
+    _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+
+    def __init__(self, coordinator, name, deviceID):
+        super().__init__(coordinator=coordinator)
+        _LOGGER.debug("Initiating Entity - New Bat Discharge Power")
+        self._attr_name = f"{name} - New Bat Discharge Power"
+        self._attr_unique_id = f"{deviceID}new-bat-discharge-power"
+        self.status = namedtuple(
+            "status",
+            [
+                ATTR_DATE,
+                ATTR_TIME,
+            ],
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        if not self.coordinator.data["online"] or not self.coordinator.data["raw"]:
+            return None
+        (
+            discharge,
+            inverterOutput,
+            pv,
+        ) = getValuesFromCoordinator(
+            self.coordinator,
+            "raw",
+            [
+                "batDischargePower",
+                "generationPower",
+                "pvPower",
+            ],
+        )
+
+        _LOGGER.debug("New Discharge Power:\n")
+        _LOGGER.debug("  discharge:       %.3f", discharge)
+        _LOGGER.debug("  inverterOutput:  %.3f", inverterOutput)
+        _LOGGER.debug("  pv:              %.3f", pv)
+
+        if inverterOutput >= 0:
+            if pv + discharge > 0:
+                dischargeRatio = discharge / (pv + discharge)
+                return round(dischargeRatio * inverterOutput, 3)
+            return 0
+        else:
+            # Battery cannot be discharging as there is power feeding into the inverter either from
+            # the second inverter or the grid.
+            return 0
 
 
 class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
