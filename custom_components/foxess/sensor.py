@@ -107,6 +107,7 @@ DEFAULT_VERIFY_SSL = False  # True
 
 SCAN_MINUTES = 1  # number of minutes betwen API requests
 SCAN_INTERVAL = timedelta(minutes=SCAN_MINUTES)
+_last_api: float = 0.0
 
 PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
@@ -123,9 +124,6 @@ PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_EVO): cv.boolean,
     }
 )
-
-token = None
-
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up FoxESS sensors from a config entry."""
@@ -151,7 +149,6 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 async def _async_setup_foxess(hass, config, async_add_entities, config_entry=None):
     """Shared setup logic for platform and config entry."""
-    global LastHour, timeslice, last_api, RestrictGetVar, xtzone, V1_Api, Evo
     Evo = False
     name = config.get(CONF_NAME)
     deviceID = config.get(CONF_DEVICEID)
@@ -188,7 +185,6 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
         _LOGGER.warning("Get Variables is in restricted mode")
     timeslice = {}
     timeslice[devicesn] = RETRY_NEXT_SLOT
-    last_api = 0
     LastHour = 0
     allData = {
         "report": {},
@@ -203,7 +199,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
 
     async def async_update_data():
         _LOGGER.debug("Updating data from https://www.foxesscloud.com/")
-        global token, timeslice, LastHour
+        nonlocal LastHour
         hournow = datetime.now().strftime("%H")  # update hour now
         _LOGGER.debug("Time now: %s, last %s", hournow, LastHour)
         tslice = timeslice[devicesn] + 1 # increment current device time slice
@@ -218,7 +214,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                     # Evo not currently in device detail, use list and fill partial blanks
                     geterror = await getOADeviceList(hass, allData, devicesn, apiKey)
                 else:
-                    geterror = await getOADeviceDetail(hass, allData, devicesn, apiKey)
+                    geterror = await getOADeviceDetail(hass, allData, devicesn, apiKey, v1_api=V1_Api)
                 if geterror is FetchResult.AUTH_FAILED:
                     if config_entry is not None:
                         raise ConfigEntryAuthFailed("FoxESS API key rejected")
@@ -243,7 +239,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                         await getOABatterySettings(hass, allData, devicesn, apiKey)
                         await asyncio.sleep(1)  # OpenAPI demand
                     # main real time data fetch, followed by reports
-                    geterror = await getRaw(hass, allData, apiKey, devicesn)
+                    geterror = await getRaw(hass, allData, apiKey, devicesn, v1_api=V1_Api, restrict_get_var=RestrictGetVar, xtzone=xtzone)
                     if geterror is FetchResult.AUTH_FAILED:
                         if config_entry is not None:
                             raise ConfigEntryAuthFailed("FoxESS API key rejected")
@@ -782,25 +778,24 @@ class GetAuth:
 
 
 async def waitforAPI():
-    global last_api
+    global _last_api  # noqa: PLW0603
     # wait for openAPI, there is a minimum of 1 second allowed between OpenAPI query calls
-    # check if last_api call was less than a second ago and if so delay the balance of 1 second
+    # check if _last_api call was less than a second ago and if so delay the balance of 1 second
     now = time.time()
-    last = last_api
+    last = _last_api
     diff = now - last if last != 0 else 1
     diff = round((diff + 0.2), 2)
     if diff < 1:
         await asyncio.sleep(diff)
         _LOGGER.debug("API enforced delay, wait: %s", diff)
-    now = time.time()
-    last_api = now
+    _last_api = time.time()
     return False
 
 
-async def getOADeviceDetail(hass, allData, devicesn, apiKey):
+async def getOADeviceDetail(hass, allData, devicesn, apiKey, *, v1_api: bool):
     await waitforAPI()
 
-    if V1_Api:
+    if v1_api:
         path = _ENDPOINT_OA_DEVICE_DETAIL_V1
         _LOGGER.debug("Device Detail using V1 API")
     else:
@@ -1145,21 +1140,21 @@ async def getReportDailyGeneration(hass, allData, apiKey, devicesn):
     return FetchResult.ERROR
 
 
-async def getRaw(hass, allData, apiKey, devicesn):
+async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_var: bool, xtzone):
     await waitforAPI()  # check for api delay
 
     # "deviceSN" used for OpenAPI and it only fetches the real time data
 
     # build the devicesn string
-    if V1_Api:
+    if v1_api:
         dsn = '{"sns":["' + devicesn + '"] }'
     else:
         dsn = '{"sn":"' + devicesn + '" }'
 
-    if RestrictGetVar:
+    if restrict_get_var:
         _LOGGER.debug("Getting Device Variable in restricted mode")
         # build the devicesn string
-        if V1_Api:
+        if v1_api:
             dsn = '{"sns":["' + devicesn + '"] '
         else:
             dsn = '{"sn":"' + devicesn + '"'
@@ -1174,7 +1169,7 @@ async def getRaw(hass, allData, apiKey, devicesn):
 
     timestamp = round(time.time() * 1000)
 
-    if V1_Api:
+    if v1_api:
         path = _ENDPOINT_OA_DEVICE_VARIABLES_V1
         _LOGGER.debug("Using V1 API")
     else:
