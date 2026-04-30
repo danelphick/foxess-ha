@@ -204,6 +204,27 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
     allData["addressbook"]["hasBattery"] = False  # assume no battery is fitted for now
     allData["addressbook"]["status"] = "3"  # assume inverter is off-line for now
 
+    async def fetch_device_detail() -> FetchResult:
+        """Fetch device detail from FoxESS Cloud.
+
+        Returns AUTH_FAILED (after logging) when the API key is rejected and
+        config_entry is None (YAML config). Raises ConfigEntryAuthFailed when
+        config_entry is set. Returns the FetchResult on success or other error.
+        """
+        if Evo:
+            geterror = await getOADeviceList(hass, allData, devicesn, apiKey)
+        else:
+            geterror = await getOADeviceDetail(hass, allData, devicesn, apiKey, v1_api=V1_Api)
+        if geterror is FetchResult.AUTH_FAILED:
+            if config_entry is not None:
+                raise ConfigEntryAuthFailed("FoxESS API key rejected")
+            _LOGGER.error(
+                "FoxESS API authentication failed. "
+                "Update your apiKey in configuration.yaml and restart."
+            )
+            return geterror
+        return geterror
+
     async def async_update_data():
         """Fetch updated sensor data from FoxESS Cloud."""
         _LOGGER.debug("Updating data from https://www.foxesscloud.com/")
@@ -218,18 +239,8 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             geterror = FetchResult.OK
             if tslice % 15 == 0:
                 # get device detail at startup, then every 15 minutes to save api calls
-                if Evo:
-                    # Evo not currently in device detail, use list and fill partial blanks
-                    geterror = await getOADeviceList(hass, allData, devicesn, apiKey)
-                else:
-                    geterror = await getOADeviceDetail(hass, allData, devicesn, apiKey, v1_api=V1_Api)
+                geterror = await fetch_device_detail()
                 if geterror is FetchResult.AUTH_FAILED:
-                    if config_entry is not None:
-                        raise ConfigEntryAuthFailed("FoxESS API key rejected")
-                    _LOGGER.error(
-                        "FoxESS API authentication failed. "
-                        "Update your apiKey in configuration.yaml and restart."
-                    )
                     return allData
                 await asyncio.sleep(1)  # OpenAPI demand
             if not geterror:
