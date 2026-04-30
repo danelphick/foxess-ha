@@ -1335,7 +1335,7 @@ def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
     manually and applied only when the device timezone differs from the local
     system timezone (controlled by the xtzone flag).
 
-    Returns 0 on any parse failure.
+    Returns 0 on parse failure (ValueError, IndexError, OverflowError).
     """
     try:
         # format is "2025-02-21 16:38:29 GMT+0000" strptime is useless at international dates, so work out the offset
@@ -1374,7 +1374,7 @@ def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
                     zulu,
                     tzoffset,
                 )
-    except:
+    except (ValueError, IndexError, OverflowError):
         tsrcv = 0
     return tsrcv
 
