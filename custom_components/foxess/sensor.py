@@ -154,6 +154,192 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     await _async_setup_foxess(hass, config, async_add_entities)
 
 
+async def _fetch_device_detail(
+    hass,
+    allData: dict,
+    devicesn: str,
+    apiKey: str,
+    Evo: bool,
+    V1_Api: bool,
+    config_entry,
+) -> FetchResult:
+    """Fetch device detail from FoxESS Cloud.
+
+    Returns AUTH_FAILED (after logging) when the API key is rejected and
+    config_entry is None (YAML config). Raises ConfigEntryAuthFailed when
+    config_entry is set. Returns the FetchResult on success or other error.
+    """
+    if Evo:
+        geterror = await getOADeviceList(hass, allData, devicesn, apiKey)
+    else:
+        geterror = await getOADeviceDetail(hass, allData, devicesn, apiKey, v1_api=V1_Api)
+    if geterror is FetchResult.AUTH_FAILED:
+        if config_entry is not None:
+            raise ConfigEntryAuthFailed("FoxESS API key rejected")
+        _LOGGER.error(
+            "FoxESS API authentication failed. "
+            "Update your apiKey in configuration.yaml and restart."
+        )
+        return geterror
+    return geterror
+
+
+async def _fetch_live_data(
+    hass,
+    allData: dict,
+    devicesn: str,
+    apiKey: str,
+    V1_Api: bool,
+    RestrictGetVar: bool,
+    xtzone: bool,
+    config_entry,
+    statetest: int,
+    tslice: int,
+) -> tuple[FetchResult, int]:
+    """Fetch raw sensor data and optional reports from FoxESS Cloud.
+
+    Called when the inverter is online (statetest 1 or 2). Returns the final
+    FetchResult and the (possibly adjusted) tslice. Returns AUTH_FAILED without
+    raising on YAML config auth failure; raises ConfigEntryAuthFailed when
+    config_entry is set.
+    """
+    allData["online"] = True
+    if tslice == 0:
+        # read in battery settings if fitted at startup, then every 60 mins
+        await getOABatterySettings(hass, allData, devicesn, apiKey)
+        await asyncio.sleep(1)  # OpenAPI demand
+    # main real time data fetch, followed by reports
+    geterror = await getRaw(hass, allData, apiKey, devicesn, v1_api=V1_Api, restrict_get_var=RestrictGetVar, xtzone=xtzone)
+    if geterror is FetchResult.AUTH_FAILED:
+        if config_entry is not None:
+            raise ConfigEntryAuthFailed("FoxESS API key rejected")
+        _LOGGER.error(
+            "FoxESS API authentication failed. "
+            "Update your apiKey in configuration.yaml and restart."
+        )
+        return geterror, tslice
+    if not geterror:
+        if tslice % 15 == 0:  # do at startup and every 15 minutes
+            await asyncio.sleep(1)  # OpenAPI demand limit
+            geterror = await getReport(hass, allData, apiKey, devicesn)
+            if not geterror:
+                if tslice == 0:
+                    # get daily generation at startup, then every 60 minutes
+                    await asyncio.sleep(1)  # OpenAPI demand
+                    geterror = await getReportDailyGeneration(hass, allData, apiKey, devicesn)
+                    if geterror:
+                        _LOGGER.debug("getReportDailyGeneration False")
+            else:
+                _LOGGER.debug("getReport False")
+            if geterror:
+                geterror = FetchResult.OK
+                allData["online"] = False
+                tslice = RETRY_IN_5_MINS  # retry in 5 minutes
+    else:
+        _LOGGER.debug("get variables failed")
+        if statetest == 2:
+            # The inverter is in alarm, don't check every minute
+            _LOGGER.debug(
+                "Inverter in alarm, slowing retry response for SN: %s",
+                devicesn,
+            )
+            allData["online"] = False
+            tslice = RETRY_IN_5_MINS  # retry in 5 minutes
+        elif geterror is FetchResult.DNS_TIMEOUT:
+            _LOGGER.warning("Fox Cloud - DNS fail, retry in 1 minute")
+            # retry in 1 minute
+            if tslice != 0:
+                tslice = (tslice-1)
+            else:
+                tslice = RETRY_NEXT_SLOT
+        else:
+            # The get variables api call failed, leave it 5 minutes
+            _LOGGER.debug("slowing retry response for SN: %s", devicesn)
+            allData["online"] = False
+            tslice = RETRY_IN_5_MINS  # retry in 5 minutes
+        geterror = FetchResult.OK
+    return geterror, tslice
+
+
+async def _async_update_data(
+    hass,
+    allData: dict,
+    devicesn: str,
+    apiKey: str,
+    Evo: bool,
+    V1_Api: bool,
+    RestrictGetVar: bool,
+    xtzone: bool,
+    config_entry,
+    name: str,
+    timeslice: dict,
+) -> dict:
+    """Fetch updated sensor data from FoxESS Cloud."""
+    _LOGGER.debug("Updating data from https://www.foxesscloud.com/")
+    hournow = datetime.now().strftime("%H")  # update hour now
+    _LOGGER.debug("Time now: %s, last %s", hournow, timeslice["last_hour"])
+    tslice = timeslice[devicesn] + 1  # increment current device time slice
+    timeslice[devicesn] = tslice
+    if tslice % 5 == 0:
+        _LOGGER.debug("Main Poll, interval: %s, %s", devicesn, timeslice[devicesn])
+        # try the openapi see if we get a response
+        geterror = FetchResult.OK
+        if tslice % 15 == 0:
+            # get device detail at startup, then every 15 minutes to save api calls
+            geterror = await _fetch_device_detail(hass, allData, devicesn, apiKey, Evo, V1_Api, config_entry)
+            if geterror is FetchResult.AUTH_FAILED:
+                return allData
+            await asyncio.sleep(1)  # OpenAPI demand
+        if not geterror:
+            if allData["addressbook"]["status"] is not None:
+                statetest = int(allData["addressbook"]["status"])
+                if statetest == 3:
+                    allData["raw"]["runningState"] = "164"  # off-grid
+            else:
+                statetest = 0
+            _LOGGER.debug(" Statetest %s", statetest)
+            if statetest in [1, 2]:
+                geterror, tslice = await _fetch_live_data(
+                    hass, allData, devicesn, apiKey, V1_Api, RestrictGetVar, xtzone, config_entry, statetest, tslice
+                )
+                if geterror is FetchResult.AUTH_FAILED:
+                    return allData
+            elif statetest == 3:
+                # The inverter is off-line, no raw data polling, don't update entities
+                # retry device detail call every 5 minutes until it comes back on-line
+                allData["online"] = False
+                tslice = RETRY_IN_5_MINS  # retry in 5 minutes
+                _LOGGER.debug("Inverter off-line for SN: %s", devicesn)
+
+            if not allData["online"]:
+                if not geterror:
+                    _LOGGER.warning("%s Inverter is off-line, waiting to retry", name)
+                else:
+                    _LOGGER.warning("%s Cloud timeout, retry in 1 minute", name)
+        else:
+            _LOGGER.warning("%s Cloud timeout on Device Detail, retry in 1 minute.", name)
+
+        if geterror is not FetchResult.OK:
+            allData["online"] = False
+            if tslice != 0:
+                tslice = tslice-1
+                # failed to get specific detail so retry slot in 1 minute
+            else:
+                tslice = RETRY_NEXT_SLOT  # failed to get full data, try again in 1 minute
+
+    # actions here are every minute
+    if tslice >= 59:
+        tslice = RETRY_NEXT_SLOT  # reset timeslot, ready for full data fetch at 0
+    _LOGGER.debug("Auxilliary timeslice %s, %s", devicesn, tslice)
+
+    timeslice["last_hour"] = hournow
+    timeslice[devicesn] = tslice
+
+    _LOGGER.debug(allData)
+
+    return allData
+
+
 async def _async_setup_foxess(hass, config, async_add_entities, config_entry=None):
     """Shared setup logic for platform and config entry."""
     Evo = False
@@ -190,9 +376,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
         _LOGGER.debug("Get Variables is full variable mode")
     else:
         _LOGGER.warning("Get Variables is in restricted mode")
-    timeslice = {}
-    timeslice[devicesn] = RETRY_NEXT_SLOT
-    LastHour = 0
+    timeslice = {devicesn: RETRY_NEXT_SLOT, "last_hour": 0}
     allData = {
         "report": {},
         "reportDailyGeneration": {},
@@ -204,151 +388,17 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
     allData["addressbook"]["hasBattery"] = False  # assume no battery is fitted for now
     allData["addressbook"]["status"] = "3"  # assume inverter is off-line for now
 
-    async def fetch_device_detail() -> FetchResult:
-        """Fetch device detail from FoxESS Cloud.
-
-        Returns AUTH_FAILED (after logging) when the API key is rejected and
-        config_entry is None (YAML config). Raises ConfigEntryAuthFailed when
-        config_entry is set. Returns the FetchResult on success or other error.
-        """
-        if Evo:
-            geterror = await getOADeviceList(hass, allData, devicesn, apiKey)
-        else:
-            geterror = await getOADeviceDetail(hass, allData, devicesn, apiKey, v1_api=V1_Api)
-        if geterror is FetchResult.AUTH_FAILED:
-            if config_entry is not None:
-                raise ConfigEntryAuthFailed("FoxESS API key rejected")
-            _LOGGER.error(
-                "FoxESS API authentication failed. "
-                "Update your apiKey in configuration.yaml and restart."
-            )
-            return geterror
-        return geterror
-
-    async def async_update_data():
-        """Fetch updated sensor data from FoxESS Cloud."""
-        _LOGGER.debug("Updating data from https://www.foxesscloud.com/")
-        nonlocal LastHour
-        hournow = datetime.now().strftime("%H")  # update hour now
-        _LOGGER.debug("Time now: %s, last %s", hournow, LastHour)
-        tslice = timeslice[devicesn] + 1 # increment current device time slice
-        timeslice[devicesn] = tslice
-        if tslice % 5 == 0:
-            _LOGGER.debug("Main Poll, interval: %s, %s", devicesn, timeslice[devicesn])
-            # try the openapi see if we get a response
-            geterror = FetchResult.OK
-            if tslice % 15 == 0:
-                # get device detail at startup, then every 15 minutes to save api calls
-                geterror = await fetch_device_detail()
-                if geterror is FetchResult.AUTH_FAILED:
-                    return allData
-                await asyncio.sleep(1)  # OpenAPI demand
-            if not geterror:
-                if allData["addressbook"]["status"] is not None:
-                    statetest = int(allData["addressbook"]["status"])
-                    if statetest == 3:
-                        allData["raw"]["runningState"] = "164"  # off-grid
-                else:
-                    statetest = 0
-                _LOGGER.debug(" Statetest %s", statetest)
-                if statetest in [1, 2]:
-                    allData["online"] = True
-                    if tslice == 0:
-                        # read in battery settings if fitted at startup, then every 60 mins
-                        await getOABatterySettings(hass, allData, devicesn, apiKey)
-                        await asyncio.sleep(1)  # OpenAPI demand
-                    # main real time data fetch, followed by reports
-                    geterror = await getRaw(hass, allData, apiKey, devicesn, v1_api=V1_Api, restrict_get_var=RestrictGetVar, xtzone=xtzone)
-                    if geterror is FetchResult.AUTH_FAILED:
-                        if config_entry is not None:
-                            raise ConfigEntryAuthFailed("FoxESS API key rejected")
-                        _LOGGER.error(
-                            "FoxESS API authentication failed. "
-                            "Update your apiKey in configuration.yaml and restart."
-                        )
-                        return allData
-                    if not geterror:
-                        if tslice % 15 == 0:  # do at startup and every 15 minutes
-                            await asyncio.sleep(1)  # OpenAPI demand limit
-                            geterror = await getReport(hass, allData, apiKey, devicesn)
-                            if not geterror:
-                                if tslice == 0:
-                                    # get daily generation at startup, then every 60 minutes
-                                    await asyncio.sleep(1)  # OpenAPI demand
-                                    geterror = await getReportDailyGeneration(hass, allData, apiKey, devicesn)
-                                    if geterror:
-                                        _LOGGER.debug("getReportDailyGeneration False")
-                            else:
-                                _LOGGER.debug("getReport False")
-                            if geterror:
-                                geterror = FetchResult.OK
-                                allData["online"] = False
-                                tslice = RETRY_IN_5_MINS  # retry in 5 minutes
-                    else:
-                        _LOGGER.debug("get variables failed")
-                        if statetest == 2:
-                            # The inverter is in alarm, don't check every minute
-                            _LOGGER.debug(
-                                "Inverter in alarm, slowing retry response for SN: %s",
-                                devicesn,
-                            )
-                            allData["online"] = False
-                            tslice = RETRY_IN_5_MINS  # retry in 5 minutes
-                        elif geterror is FetchResult.DNS_TIMEOUT:
-                            _LOGGER.warning("Fox Cloud - DNS fail, retry in 1 minute")
-                            # retry in 1 minute
-                            if tslice != 0:
-                                tslice = (tslice-1)
-                            else:
-                                tslice = RETRY_NEXT_SLOT
-                        else:
-                            # The get variables api call failed, leave it 5 minutes
-                            _LOGGER.debug("slowing retry response for SN: %s", devicesn)
-                            allData["online"] = False
-                            tslice = RETRY_IN_5_MINS  # retry in 5 minutes
-                        geterror = FetchResult.OK
-                elif statetest == 3:
-                    # The inverter is off-line, no raw data polling, don't update entities
-                    # retry device detail call every 5 minutes until it comes back on-line
-                    allData["online"] = False
-                    tslice = RETRY_IN_5_MINS  # retry in 5 minutes
-                    _LOGGER.debug("Inverter off-line for SN: %s", devicesn)
-
-                if not allData["online"]:
-                    if not geterror:
-                        _LOGGER.warning("%s Inverter is off-line, waiting to retry", name)
-                    else:
-                        _LOGGER.warning("%s Cloud timeout, retry in 1 minute", name)
-            else:
-                _LOGGER.warning("%s Cloud timeout on Device Detail, retry in 1 minute.", name)
-
-            if geterror is not FetchResult.OK:
-                allData["online"] = False
-                if tslice != 0:
-                    tslice = tslice-1
-                    # failed to get specific detail so retry slot in 1 minute
-                else:
-                    tslice = RETRY_NEXT_SLOT  # failed to get full data, try again in 1 minute
-
-        # actions here are every minute
-        if tslice >= 59:
-            tslice = RETRY_NEXT_SLOT  # reset timeslot, ready for full data fetch at 0
-        _LOGGER.debug("Auxilliary timeslice %s, %s", devicesn, tslice)
-
-        # update the hour the last poll was run
-        LastHour = hournow
-
-        timeslice[devicesn] = tslice
-
-        _LOGGER.debug(allData)
-
-        return allData
+    async def _update_callback() -> dict:
+        return await _async_update_data(
+            hass, allData, devicesn, apiKey, Evo, V1_Api,
+            RestrictGetVar, xtzone, config_entry, name, timeslice,
+        )
 
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
         name=DEFAULT_NAME,
-        update_method=async_update_data,
+        update_method=_update_callback,
         update_interval=SCAN_INTERVAL,
         config_entry=config_entry,
     )
