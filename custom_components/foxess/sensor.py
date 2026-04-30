@@ -324,8 +324,8 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             tslice = RETRY_NEXT_SLOT  # reset timeslot, ready for full data fetch at 0
         _LOGGER.debug("Auxilliary timeslice %s, %s", devicesn, tslice)
 
-        if LastHour != hournow:
-            LastHour = hournow  # update the hour the last poll was run
+        # update the hour the last poll was run
+        LastHour = hournow
 
         timeslice[devicesn] = tslice
 
@@ -1165,33 +1165,25 @@ async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_
 
     # build the devicesn string
     if v1_api:
-        dsn = '{"sns":["' + devicesn + '"] }'
+        path = _ENDPOINT_OA_DEVICE_VARIABLES_V1
+        _LOGGER.debug("Using V1 API")
+        dsn = '{"sns":["' + devicesn + '"] '
     else:
-        dsn = '{"sn":"' + devicesn + '" }'
+        path = _ENDPOINT_OA_DEVICE_VARIABLES
+        dsn = '{"sn":"' + devicesn + '" '
 
     if restrict_get_var:
         _LOGGER.debug("Getting Device Variable in restricted mode")
-        # build the devicesn string
-        if v1_api:
-            dsn = '{"sns":["' + devicesn + '"] '
-        else:
-            dsn = '{"sn":"' + devicesn + '"'
 
         rawData = (
             dsn + ',"variables":["ambientTemperation", "batChargePower", "batCurrent", "batCurrent_1", "batCurrent_2", "batDischargePower", "batTemperature", "batTemperature_1", "batTemperature_2", "batVolt", "batVolt_1", "batVolt_2", "boostTemperation", "chargeTemperature", "dspTemperature", "epsCurrentR", "epsCurrentS", "epsCurrentT", "epsPower", "epsPowerR", "epsPowerS", "epsPowerT", "epsVoltR", "epsVoltS", "epsVoltT", "feedinPower", "generationPower", "gridConsumptionPower", "input", "invBatCurrent", "invBatPower", "invBatVolt", "invTemperation", "loadsPower", "loadsPowerR", "loadsPowerS", "loadsPowerT", "meterPower", "meterPower2", "meterPowerR", "meterPowerS", "meterPowerT", "PowerFactor", "pv1Current", "pv1Power", "pv1Volt", "pv2Current", "pv2Power", "pv2Volt", "pv3Current", "pv3Power", "pv3Volt", "pv4Current", "pv4Power", "pv4Volt", "pvPower", "RCurrent", "ReactivePower", "RFreq", "RPower", "RVolt", "SCurrent", "SFreq", "SoC", "SPower", "SVolt", "TCurrent", "TFreq", "TPower", "TVolt", "SoC_1", "Soc_2", "ResidualEnergy", "energyThroughput", "runningState", "currentFaultCount"] }'
         )
-    else:
-        rawData = dsn # '{"sn":"' + dsn + '" }'
+
+    rawData = dsn + ' }'
 
     _LOGGER.debug("getRaw OA request: %s", rawData)
 
     timestamp = round(time.time() * 1000)
-
-    if v1_api:
-        path = _ENDPOINT_OA_DEVICE_VARIABLES_V1
-        _LOGGER.debug("Using V1 API")
-    else:
-        path = _ENDPOINT_OA_DEVICE_VARIABLES
 
     headerData = GetAuth().get_signature(token=apiKey, path=path)
 
@@ -1229,10 +1221,7 @@ async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_
     response = json.loads(restOADeviceVariables.data)
     if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
         ResponseTime = round(time.time() * 1000) - timestamp
-        if ResponseTime > 0:
-            allData["raw"]["ResponseTime"] = ResponseTime
-        else:
-            allData["raw"]["ResponseTime"] = 0
+        allData["raw"]["ResponseTime"] = max(ResponseTime, 0)
 
         test = json.loads(restOADeviceVariables.data)["result"]
 
