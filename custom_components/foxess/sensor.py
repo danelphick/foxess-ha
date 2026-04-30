@@ -1,49 +1,47 @@
 from __future__ import annotations
 
-from collections import namedtuple
-from datetime import timedelta
-from datetime import datetime
-from dateutil import parser
-import enum
-import time
-import logging
-import json
-import hashlib
 import asyncio
+from datetime import datetime, timedelta
+import enum
+import hashlib
+import json
+import logging
+import time
+from typing import NamedTuple
+
+from dateutil import parser
 import voluptuous as vol
 
 from homeassistant.components.rest.data import RestData
 from homeassistant.components.sensor import (
+    PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
     SensorDeviceClass,
-    SensorStateClass,
-    PLATFORM_SCHEMA,
     SensorEntity,
+    SensorStateClass,
 )
-
-
 from homeassistant.const import (
     ATTR_DATE,
     ATTR_TIME,
+    CONF_NAME,
     CONF_PASSWORD,
     CONF_USERNAME,
-    CONF_NAME,
-    UnitOfPower,
-    UnitOfTemperature,
-    UnitOfEnergy,
-    UnitOfElectricPotential,
-    UnitOfElectricCurrent,
-    UnitOfFrequency,
-    UnitOfReactivePower,
     PERCENTAGE,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfEnergy,
+    UnitOfFrequency,
+    UnitOfPower,
+    UnitOfReactivePower,
+    UnitOfTemperature,
 )
 from homeassistant.exceptions import ConfigEntryAuthFailed
+import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.icon import icon_for_battery_level
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
 from homeassistant.util.ssl import SSLCipherList
-from homeassistant.helpers.icon import icon_for_battery_level
-import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 _ENDPOINT_OA_DOMAIN = "https://www.foxesscloud.com"
@@ -110,7 +108,7 @@ DEFAULT_VERIFY_SSL = False  # True
 SCAN_MINUTES = 1  # number of minutes betwen API requests
 SCAN_INTERVAL = timedelta(minutes=SCAN_MINUTES)
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
         vol.Optional(CONF_USERNAME): cv.string,
         vol.Optional(CONF_PASSWORD): cv.string,
@@ -233,7 +231,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             if not geterror:
                 if allData["addressbook"]["status"] is not None:
                     statetest = int(allData["addressbook"]["status"])
-                    if statetest in [3]:
+                    if statetest == 3:
                         allData["raw"]["runningState"] = "164"  # off-grid
                 else:
                     statetest = 0
@@ -281,27 +279,25 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                             )
                             allData["online"] = False
                             tslice = RETRY_IN_5_MINS  # retry in 5 minutes
-                        else:
-                            if geterror is FetchResult.DNS_TIMEOUT:
-                                _LOGGER.warning("Fox Cloud - DNS fail, retry in 1 minute")
-                                # retry in 1 minute
-                                if tslice != 0:
-                                    tslice = (tslice-1)
-                                else:
-                                    tslice = RETRY_NEXT_SLOT
+                        elif geterror is FetchResult.DNS_TIMEOUT:
+                            _LOGGER.warning("Fox Cloud - DNS fail, retry in 1 minute")
+                            # retry in 1 minute
+                            if tslice != 0:
+                                tslice = (tslice-1)
                             else:
-                                # The get variables api call failed, leave it 5 minutes
-                                _LOGGER.debug("slowing retry response for SN: %s", devicesn)
-                                allData["online"] = False
-                                tslice = RETRY_IN_5_MINS  # retry in 5 minutes
+                                tslice = RETRY_NEXT_SLOT
+                        else:
+                            # The get variables api call failed, leave it 5 minutes
+                            _LOGGER.debug("slowing retry response for SN: %s", devicesn)
+                            allData["online"] = False
+                            tslice = RETRY_IN_5_MINS  # retry in 5 minutes
                         geterror = FetchResult.OK
-                else:
-                    if statetest == 3:
-                        # The inverter is off-line, no raw data polling, don't update entities
-                        # retry device detail call every 5 minutes until it comes back on-line
-                        allData["online"] = False
-                        tslice = RETRY_IN_5_MINS  # retry in 5 minutes
-                        _LOGGER.debug("Inverter off-line for SN: %s", devicesn)
+                elif statetest == 3:
+                    # The inverter is off-line, no raw data polling, don't update entities
+                    # retry device detail call every 5 minutes until it comes back on-line
+                    allData["online"] = False
+                    tslice = RETRY_IN_5_MINS  # retry in 5 minutes
+                    _LOGGER.debug("Inverter off-line for SN: %s", devicesn)
 
                 if not allData["online"]:
                     if not geterror:
@@ -751,10 +747,12 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             ]
         )
 
+    return None
 
 class GetAuth:
     def get_signature(self, token, path, lang="en"):
-        """
+        """Generate headers for FoxESS Cloud authentication.
+
         This function is used to generate a signature consisting of URL, token, and timestamp, and return a dictionary containing the signature and other information.
             :param token: your key
             :param path:  your request path
@@ -764,7 +762,7 @@ class GetAuth:
         timestamp = round(time.time() * 1000)
         signature = rf"{path}\r\n{token}\r\n{timestamp}"
         # or use user_agent_rotator.get_random_user_agent() for user-agent
-        result = {
+        return {
             "token": token,
             "lang": lang,
             "timestamp": str(timestamp),
@@ -775,15 +773,12 @@ class GetAuth:
             "Connection": "close",
         }
 
-        return result
-
     @staticmethod
     def md5c(text="", _type="lower"):
         res = hashlib.md5(text.encode(encoding="UTF-8")).hexdigest()
         if _type.__eq__("lower"):
             return res
-        else:
-            return res.upper()
+        return res.upper()
 
 
 async def waitforAPI():
@@ -835,30 +830,30 @@ async def getOADeviceDetail(hass, allData, devicesn, apiKey):
     if restOADeviceDetail.data is None or restOADeviceDetail.data == "":
         _LOGGER.debug("Unable to get OA Device Detail from FoxESS Cloud")
         return FetchResult.ERROR
-    else:
-        response = json.loads(restOADeviceDetail.data)
-        if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
-            ResponseTime = round(time.time() * 1000) - timestamp
-            if ResponseTime > 0:
-                allData["raw"]["ResponseTime"] = ResponseTime
-            else:
-                allData["raw"]["ResponseTime"] = 0
-            _LOGGER.debug("OA Device Detail Good Response: %s", response["result"])
-            result = response["result"]
-            allData["addressbook"] = result
-            # manually poke this in as on the old cloud it was called plantname, need to keep in line with old entity name
-            plantName = result["stationName"]
-            allData["addressbook"]["plantName"] = plantName
-            testBattery = result["hasBattery"]
-            if testBattery:
-                _LOGGER.debug("OA Device Detail System has Battery: %s", testBattery)
-            else:
-                _LOGGER.debug("OA Device Detail System has No Battery: %s", testBattery)
-                allData["addressbook"][ATTR_BATTERYLIST] = "No Battery"
-            return FetchResult.OK
+
+    response = json.loads(restOADeviceDetail.data)
+    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+        ResponseTime = round(time.time() * 1000) - timestamp
+        if ResponseTime > 0:
+            allData["raw"]["ResponseTime"] = ResponseTime
         else:
-            _LOGGER.error("OA Device Detail Bad Response: %s", response)
-            return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
+            allData["raw"]["ResponseTime"] = 0
+        _LOGGER.debug("OA Device Detail Good Response: %s", response["result"])
+        result = response["result"]
+        allData["addressbook"] = result
+        # manually poke this in as on the old cloud it was called plantname, need to keep in line with old entity name
+        plantName = result["stationName"]
+        allData["addressbook"]["plantName"] = plantName
+        testBattery = result["hasBattery"]
+        if testBattery:
+            _LOGGER.debug("OA Device Detail System has Battery: %s", testBattery)
+        else:
+            _LOGGER.debug("OA Device Detail System has No Battery: %s", testBattery)
+            allData["addressbook"][ATTR_BATTERYLIST] = "No Battery"
+        return FetchResult.OK
+
+    _LOGGER.error("OA Device Detail Bad Response: %s", response)
+    return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
 
 
 async def getOADeviceList(hass, allData, devicesn, apiKey):
@@ -893,38 +888,37 @@ async def getOADeviceList(hass, allData, devicesn, apiKey):
     if restOADeviceList.data is None or restOADeviceList.data == "":
         _LOGGER.debug("Unable to get OA Device List from FoxESS Cloud")
         return FetchResult.ERROR
-    else:
-        response = json.loads(restOADeviceList.data)
-        if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
-            ResponseTime = round(time.time() * 1000) - timestamp
-            if ResponseTime > 0:
-                allData["raw"]["ResponseTime"] = ResponseTime
-            else:
-                allData["raw"]["ResponseTime"] = 0
-            _LOGGER.debug("OA Device List Good Response: %s", response["result"])
-            result = json.loads(restOADeviceList.data)["result"]["data"]
-            for item in result:
-                variableName = item["stationName"]
-                _LOGGER.debug("OA Device List item: %s", item)
-                break
-            allData["addressbook"] = item
-            plantName = item["stationName"]
-            allData["addressbook"]["plantName"] = plantName
-            allData["addressbook"]["masterVersion"] = 'not provided'
-            allData["addressbook"]["managerVersion"] = 'not provided'
-            allData["addressbook"]["slaveVersion"] = 'not provided'
-            allData["addressbook"]["batteryList"] = 'not provided'
-            testBattery = item["hasBattery"]
-            if testBattery:
-                _LOGGER.debug("OA Device List System has Battery: %s", testBattery)
-            else:
-                _LOGGER.debug("OA Device List System has No Battery: %s", testBattery)
-                allData["addressbook"][ATTR_BATTERYLIST] = "No Battery"
 
-            return FetchResult.OK
+    response = json.loads(restOADeviceList.data)
+    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+        ResponseTime = round(time.time() * 1000) - timestamp
+        if ResponseTime > 0:
+            allData["raw"]["ResponseTime"] = ResponseTime
         else:
-            _LOGGER.error("OA Device List Bad Response: %s", response)
-            return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
+            allData["raw"]["ResponseTime"] = 0
+        _LOGGER.debug("OA Device List Good Response: %s", response["result"])
+        result = json.loads(restOADeviceList.data)["result"]["data"]
+        for item in result:
+            _LOGGER.debug("OA Device List item: %s", item)
+            break
+        allData["addressbook"] = item
+        plantName = item["stationName"]
+        allData["addressbook"]["plantName"] = plantName
+        allData["addressbook"]["masterVersion"] = 'not provided'
+        allData["addressbook"]["managerVersion"] = 'not provided'
+        allData["addressbook"]["slaveVersion"] = 'not provided'
+        allData["addressbook"]["batteryList"] = 'not provided'
+        testBattery = item["hasBattery"]
+        if testBattery:
+            _LOGGER.debug("OA Device List System has Battery: %s", testBattery)
+        else:
+            _LOGGER.debug("OA Device List System has No Battery: %s", testBattery)
+            allData["addressbook"][ATTR_BATTERYLIST] = "No Battery"
+
+        return FetchResult.OK
+
+    _LOGGER.error("OA Device List Bad Response: %s", response)
+    return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
 
 
 async def getOABatterySettings(hass, allData, devicesn, apiKey):
@@ -960,31 +954,31 @@ async def getOABatterySettings(hass, allData, devicesn, apiKey):
         if restOABatterySettings.data is None:
             _LOGGER.debug("Unable to get OA Battery Settings from FoxESS Cloud")
             return FetchResult.ERROR
-        else:
-            response = json.loads(restOABatterySettings.data)
-            if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
-                _LOGGER.debug(
-                    "OA Battery Settings Good Response: %s", response["result"]
-                )
-                result = response["result"]
-                minSoc = result["minSoc"]
-                minSocOnGrid = result["minSocOnGrid"]
-                allData["battery"]["minSoc"] = minSoc
-                allData["battery"]["minSocOnGrid"] = minSocOnGrid
-                _LOGGER.debug(
-                    "OA Battery Settings read MinSoc: %d, MinSocOnGrid: %d",
-                    minSoc,
-                    minSocOnGrid,
-                )
-                return FetchResult.OK
-            else:
-                _LOGGER.error("OA Battery Settings Bad Response: %s", response)
-                return FetchResult.ERROR
-    else:
-        # device detail reports no battery fitted so reset these variables to show unknown
-        allData["battery"]["minSoc"] = None
-        allData["battery"]["minSocOnGrid"] = None
-        return FetchResult.OK
+
+        response = json.loads(restOABatterySettings.data)
+        if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+            _LOGGER.debug(
+                "OA Battery Settings Good Response: %s", response["result"]
+            )
+            result = response["result"]
+            minSoc = result["minSoc"]
+            minSocOnGrid = result["minSocOnGrid"]
+            allData["battery"]["minSoc"] = minSoc
+            allData["battery"]["minSocOnGrid"] = minSocOnGrid
+            _LOGGER.debug(
+                "OA Battery Settings read MinSoc: %d, MinSocOnGrid: %d",
+                minSoc,
+                minSocOnGrid,
+            )
+            return FetchResult.OK
+
+        _LOGGER.error("OA Battery Settings Bad Response: %s", response)
+        return FetchResult.ERROR
+
+    # device detail reports no battery fitted so reset these variables to show unknown
+    allData["battery"]["minSoc"] = None
+    allData["battery"]["minSocOnGrid"] = None
+    return FetchResult.OK
 
 
 async def getReport(hass, allData, apiKey, devicesn):
@@ -1030,40 +1024,40 @@ async def getReport(hass, allData, apiKey, devicesn):
     if restOAReport.data is None or restOAReport.data == "":
         _LOGGER.debug("Unable to get OA Report from FoxESS Cloud")
         return FetchResult.ERROR
-    else:
-        # Openapi responded so process data
-        response = json.loads(restOAReport.data)
-        if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+
+    # Openapi responded so process data
+    response = json.loads(restOAReport.data)
+    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+        _LOGGER.debug(
+            "OA Report Data fetched OK: %s %s ", response, restOAReport.data[:350]
+        )
+        result = json.loads(restOAReport.data)["result"]
+        today = int(
+            now.strftime("%d")
+        )  # need today as an integer to locate in the monthly report index
+        for item in result:
+            variableName = item["variable"]
+            # Daily reports break down the data hour by month for each day
+            # so locate the current days index and use that as the sum
+            index = 1
+            cumulative_total = 0
+            for dataItem in item["values"]:
+                if today == index:  # we're only interested in the total for today
+                    if dataItem is not None:
+                        cumulative_total = dataItem
+                    else:
+                        _LOGGER.debug("Report month fetch, None received")
+                    break
+                index += 1
+                # cumulative_total += dataItem
+            allData["report"][variableName] = round(cumulative_total, 3)
             _LOGGER.debug(
-                "OA Report Data fetched OK: %s %s ", response, restOAReport.data[:350]
+                "OA Report Variable: %s, Total: %s", variableName, cumulative_total
             )
-            result = json.loads(restOAReport.data)["result"]
-            today = int(
-                now.strftime("%d")
-            )  # need today as an integer to locate in the monthly report index
-            for item in result:
-                variableName = item["variable"]
-                # Daily reports break down the data hour by month for each day
-                # so locate the current days index and use that as the sum
-                index = 1
-                cumulative_total = 0
-                for dataItem in item["values"]:
-                    if today == index:  # we're only interested in the total for today
-                        if dataItem != None:
-                            cumulative_total = dataItem
-                        else:
-                            _LOGGER.debug("Report month fetch, None received")
-                        break
-                    index += 1
-                    # cumulative_total += dataItem
-                allData["report"][variableName] = round(cumulative_total, 3)
-                _LOGGER.debug(
-                    "OA Report Variable: %s, Total: %s", variableName, cumulative_total
-                )
-            return FetchResult.OK
-        else:
-            _LOGGER.debug("OA Report Bad Response: %s %s ", response, restOAReport.data)
-            return FetchResult.ERROR
+        return FetchResult.OK
+
+    _LOGGER.debug("OA Report Bad Response: %s %s ", response, restOAReport.data)
+    return FetchResult.ERROR
 
 
 async def getReportDailyGeneration(hass, allData, apiKey, devicesn):
@@ -1098,57 +1092,57 @@ async def getReportDailyGeneration(hass, allData, apiKey, devicesn):
     if restOAgen.data is None or restOAgen.data == "":
         _LOGGER.debug("Unable to get OA Daily Generation Report from FoxESS Cloud")
         return FetchResult.ERROR
-    else:
-        response = json.loads(restOAgen.data)
-        if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
-            _LOGGER.debug(
-                "OA Daily Generation Report Data fetched OK Response: %s",
-                restOAgen.data[:500],
-            )
 
-            parsed = json.loads(restOAgen.data)["result"]
-            if "today" not in parsed:
-                allData["reportDailyGeneration"]["value"] = 0
-                _LOGGER.debug(
-                    "OA Daily Generation Report data, today has no value: %s set to 0",
-                    parsed,
-                )
-            else:
-                allData["reportDailyGeneration"]["value"] = parsed["today"]
-                _LOGGER.debug(
-                    "OA Daily Generation Report data: todays value %s ", parsed["today"]
-                )
-            if "month" not in parsed:
-                allData["reportDailyGeneration"]["month"] = 0
-                _LOGGER.debug(
-                    "OA Daily Generation Report data, month has no value: %s set to 0",
-                    parsed,
-                )
-            else:
-                allData["reportDailyGeneration"]["month"] = parsed["month"]
-                _LOGGER.debug(
-                    "OA Daily Generation Report data: month value %s ", parsed["month"]
-                )
-            if "cumulative" not in parsed:
-                allData["reportDailyGeneration"]["cumulative"] = 0
-                _LOGGER.debug(
-                    "OA Daily Generation Report data, cumulative has no value: %s set to 0",
-                    parsed,
-                )
-            else:
-                allData["reportDailyGeneration"]["cumulative"] = parsed["cumulative"]
-                _LOGGER.debug(
-                    "OA Daily Generation Report data: cumulative value %s ",
-                    parsed["cumulative"],
-                )
-            return FetchResult.OK
-        else:
+    response = json.loads(restOAgen.data)
+    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+        _LOGGER.debug(
+            "OA Daily Generation Report Data fetched OK Response: %s",
+            restOAgen.data[:500],
+        )
+
+        parsed = json.loads(restOAgen.data)["result"]
+        if "today" not in parsed:
+            allData["reportDailyGeneration"]["value"] = 0
             _LOGGER.debug(
-                "OA Daily Generation Report Bad Response: %s %s ",
-                response,
-                restOAgen.data,
+                "OA Daily Generation Report data, today has no value: %s set to 0",
+                parsed,
             )
-            return FetchResult.ERROR
+        else:
+            allData["reportDailyGeneration"]["value"] = parsed["today"]
+            _LOGGER.debug(
+                "OA Daily Generation Report data: todays value %s ", parsed["today"]
+            )
+        if "month" not in parsed:
+            allData["reportDailyGeneration"]["month"] = 0
+            _LOGGER.debug(
+                "OA Daily Generation Report data, month has no value: %s set to 0",
+                parsed,
+            )
+        else:
+            allData["reportDailyGeneration"]["month"] = parsed["month"]
+            _LOGGER.debug(
+                "OA Daily Generation Report data: month value %s ", parsed["month"]
+            )
+        if "cumulative" not in parsed:
+            allData["reportDailyGeneration"]["cumulative"] = 0
+            _LOGGER.debug(
+                "OA Daily Generation Report data, cumulative has no value: %s set to 0",
+                parsed,
+            )
+        else:
+            allData["reportDailyGeneration"]["cumulative"] = parsed["cumulative"]
+            _LOGGER.debug(
+                "OA Daily Generation Report data: cumulative value %s ",
+                parsed["cumulative"],
+            )
+        return FetchResult.OK
+
+    _LOGGER.debug(
+        "OA Daily Generation Report Bad Response: %s %s ",
+        response,
+        restOAgen.data,
+    )
+    return FetchResult.ERROR
 
 
 async def getRaw(hass, allData, apiKey, devicesn):
@@ -1217,164 +1211,164 @@ async def getRaw(hass, allData, apiKey, devicesn):
     if restOADeviceVariables.data is None or restOADeviceVariables.data == "":
         _LOGGER.debug("Unable to get OA Variables from FoxESS Cloud")
         return FetchResult.ERROR
-    else:
-        # Openapi responded correctly
-        response = json.loads(restOADeviceVariables.data)
-        if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
-            ResponseTime = round(time.time() * 1000) - timestamp
-            if ResponseTime > 0:
-                allData["raw"]["ResponseTime"] = ResponseTime
+
+    # Openapi responded correctly
+    response = json.loads(restOADeviceVariables.data)
+    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+        ResponseTime = round(time.time() * 1000) - timestamp
+        if ResponseTime > 0:
+            allData["raw"]["ResponseTime"] = ResponseTime
+        else:
+            allData["raw"]["ResponseTime"] = 0
+
+        test = json.loads(restOADeviceVariables.data)["result"]
+
+        timercv = test[0].get("time")
+        try:
+            # format is "2025-02-21 16:38:29 GMT+0000" strptime is useless at international dates, so work out the offset
+            # tsrcv = datetime.strptime(testt, "%Y-%m-%d %H:%M:%S %Z%z") fails on some countries
+            _LOGGER.debug("OA Variables time: %s ", timercv)
+            tzoffsetsign = timercv[23:24]
+            tzoffsethr = int(timercv[24:26])
+            tzoffsetmin = int(timercv[26:28])
+            tzfull = str(timercv[23:28])
+            _LOGGER.debug(
+                "OA Variables tzoffsign: %s, hr: %s, min: %s, full: %s",
+                tzoffsetsign,
+                tzoffsethr,
+                tzoffsetmin,
+                tzfull,
+            )
+            if tzoffsetsign == "+":
+                tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * 1
             else:
-                allData["raw"]["ResponseTime"] = 0
-
-            test = json.loads(restOADeviceVariables.data)["result"]
-
-            timercv = test[0].get("time")
-            try:
-                # format is "2025-02-21 16:38:29 GMT+0000" strptime is useless at international dates, so work out the offset
-                # tsrcv = datetime.strptime(testt, "%Y-%m-%d %H:%M:%S %Z%z") fails on some countries
-                _LOGGER.debug("OA Variables time: %s ", timercv)
-                tzoffsetsign = timercv[23:24]
-                tzoffsethr = int(timercv[24:26])
-                tzoffsetmin = int(timercv[26:28])
-                tzfull = str(timercv[23:28])
-                _LOGGER.debug(
-                    "OA Variables tzoffsign: %s, hr: %s, min: %s, full: %s",
-                    tzoffsetsign,
-                    tzoffsethr,
-                    tzoffsetmin,
-                    tzfull,
-                )
-                if tzoffsetsign in ["+"]:
-                    tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * 1
-                else:
-                    tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * -1
-                tsrcv = (parser.parse(timercv, ignoretz=True)).timestamp()
-                zulu = datetime.now().astimezone().strftime("%z")
-                if zulu != tzfull:
-                    if xtzone:
-                        _LOGGER.debug(
-                            "OA Variables tsrcv applying offset: %s, offset: %s, zulu: %s",
-                            tsrcv,
-                            tzoffset,
-                            zulu,
-                        )
-                        tsrcv = tsrcv - tzoffset
-                else:
+                tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * -1
+            tsrcv = (parser.parse(timercv, ignoretz=True)).timestamp()
+            zulu = datetime.now().astimezone().strftime("%z")
+            if zulu != tzfull:
+                if xtzone:
                     _LOGGER.debug(
-                        "OA Variables tsrcv is local: %s, zulu: %s, offset: %s ",
+                        "OA Variables tsrcv applying offset: %s, offset: %s, zulu: %s",
                         tsrcv,
-                        zulu,
                         tzoffset,
+                        zulu,
                     )
-            except:
-                tsrcv = 0
-            age = 0
-            if tsrcv != 0:
-                testd = datetime.now()
-                tsnow = round(time.time())
-                age = round(tsnow - tsrcv)
+                    tsrcv = tsrcv - tzoffset
+            else:
                 _LOGGER.debug(
-                    "OA Variables time: %s vs %s timestamps r:%s now:%s, age: %s",
+                    "OA Variables tsrcv is local: %s, zulu: %s, offset: %s ",
+                    tsrcv,
+                    zulu,
+                    tzoffset,
+                )
+        except:
+            tsrcv = 0
+        age = 0
+        if tsrcv != 0:
+            testd = datetime.now()
+            tsnow = round(time.time())
+            age = round(tsnow - tsrcv)
+            _LOGGER.debug(
+                "OA Variables time: %s vs %s timestamps r:%s now:%s, age: %s",
+                timercv,
+                testd,
+                tsrcv,
+                tsnow,
+                age,
+            )
+            if age > 361:
+                _LOGGER.debug(
+                    "OA Variables invalid age: %s vs %s timestamps r:%s now:%s, age: %s",
                     timercv,
                     testd,
                     tsrcv,
                     tsnow,
                     age,
                 )
-                if age > 361:
+
+        result = test[0].get("datas")
+        _LOGGER.debug("OA Variables Good Response: %s", result)
+        # allData['raw'] = {}
+        for (
+            item
+        ) in result:  # json.loads(result): # restOADeviceVariables.data)['result']:
+            variableName = item["variable"]
+            # If value exists
+            if item.get("value") is not None:
+                variableValue = item["value"]
+            else:
+                variableValue = 0
+                _LOGGER.debug("Variable %s no value, set to zero", variableName)
+            # fix for various battery and scale items
+            if variableName == "SoC_1":
+                variableName = "SoC_1"  # do nothing for the moment, future release might align this correctly to use SoC
+            elif variableName == "batTemperature_1":
+                variableName = "batTemperature"  # use entity for single battery systems
+            elif variableName == "invBatPower_1":
+                variableName = "invBatPower"  # use entity for single battery systems
+            elif variableName == "ResidualEnergy":
+                if item.get("unit") is not None:
+                    scale=item["unit"]
+                    if scale in ['1.0kWh', 'kWh', None]:
+                        variableValue = round((variableValue * 100),2)
+                        _LOGGER.debug("OA Variables ResidualEnergy Scale: *100 %s", scale)
+                    elif scale=="0.1kWh":
+                        variableValue = round((variableValue * 10),2)
+                        _LOGGER.debug("OA Variables ResidualEnergy Scale: *10 %s", scale)
+                    else:
+                        _LOGGER.debug("OA Variables ResidualEnergy Scale: %s", scale)
+
+            allData["raw"][variableName] = variableValue
+            _LOGGER.debug(
+                "Var: %s, SN: %s set to %s",
+                variableName,
+                devicesn,
+                allData["raw"][variableName],
+            )
+
+            if variableName == "runningState" and (
+                "hasBattery" in allData["addressbook"]
+            ):
+                hasBat = allData["addressbook"]["hasBattery"]
+                if not hasBat:
+                    # solar only inverter
                     _LOGGER.debug(
-                        "OA Variables invalid age: %s vs %s timestamps r:%s now:%s, age: %s",
-                        timercv,
-                        testd,
-                        tsrcv,
-                        tsnow,
-                        age,
+                        "TestState: %s, hasBat: %s online: %s",
+                        variableValue,
+                        hasBat,
+                        allData["online"],
                     )
-
-            result = test[0].get("datas")
-            _LOGGER.debug("OA Variables Good Response: %s", result)
-            # allData['raw'] = {}
-            for (
-                item
-            ) in result:  # json.loads(result): # restOADeviceVariables.data)['result']:
-                variableName = item["variable"]
-                # If value exists
-                if item.get("value") is not None:
-                    variableValue = item["value"]
-                else:
-                    variableValue = 0
-                    _LOGGER.debug("Variable %s no value, set to zero", variableName)
-                # fix for various battery and scale items
-                if variableName == "SoC_1":
-                    variableName = "SoC_1"  # do nothing for the moment, future release might align this correctly to use SoC
-                elif variableName == "batTemperature_1":
-                    variableName = "batTemperature"  # use entity for single battery systems
-                elif variableName == "invBatPower_1":
-                    variableName = "invBatPower"  # use entity for single battery systems
-                elif variableName == "ResidualEnergy":
-                    if item.get("unit") is not None:
-                        scale=item["unit"]
-                        if scale in ['1.0kWh', 'kWh', None]:
-                            variableValue = round((variableValue * 100),2)
-                            _LOGGER.debug("OA Variables ResidualEnergy Scale: *100 %s", scale)
-                        elif scale=="0.1kWh":
-                            variableValue = round((variableValue * 10),2)
-                            _LOGGER.debug("OA Variables ResidualEnergy Scale: *10 %s", scale)
-                        else:
-                            _LOGGER.debug("OA Variables ResidualEnergy Scale: %s", scale)
-
-                allData["raw"][variableName] = variableValue
-                _LOGGER.debug(
-                    "Var: %s, SN: %s set to %s",
-                    variableName,
-                    devicesn,
-                    allData["raw"][variableName],
-                )
-
-                if variableName == "runningState" and (
-                    "hasBattery" in allData["addressbook"]
-                ):
-                    hasBat = allData["addressbook"]["hasBattery"]
-                    if not hasBat:
-                        # solar only inverter
-                        _LOGGER.debug(
-                            "TestState: %s, hasBat: %s online: %s",
-                            variableValue,
-                            hasBat,
-                            allData["online"],
-                        )
-                        if variableValue is not None:
-                            if variableValue == "161" or variableValue == "162":
-                                # waiting and solar only so set off-line flag
-                                if age < 361:
-                                    _LOGGER.debug(
-                                        "Waiting but data less than 5 minutes old - allow sample, RunningState: %s, hasBat: %s online: %s",
-                                        variableValue,
-                                        hasBat,
-                                        allData["online"],
-                                    )
-                                else:
-                                    allData["online"] = False
-                                    _LOGGER.debug(
-                                        "Waiting so set off-line state, TestState: %s, hasBat: %s online: %s",
-                                        variableValue,
-                                        hasBat,
-                                        allData["online"],
-                                    )
-                            elif variableValue == "163" and not allData["online"]:
-                                # on-grid but showing off-line wait for it to be set on-line by OADeviceDetail
-                                # allData["online"] = False
+                    if variableValue is not None:
+                        if variableValue in ["161", "162"]:
+                            # waiting and solar only so set off-line flag
+                            if age < 361:
                                 _LOGGER.debug(
-                                    "Inverter on-grid but off-line wait for OADevice to confirm, TestState: %s, hasBat: %s",
+                                    "Waiting but data less than 5 minutes old - allow sample, RunningState: %s, hasBat: %s online: %s",
                                     variableValue,
                                     hasBat,
+                                    allData["online"],
                                 )
+                            else:
+                                allData["online"] = False
+                                _LOGGER.debug(
+                                    "Waiting so set off-line state, TestState: %s, hasBat: %s online: %s",
+                                    variableValue,
+                                    hasBat,
+                                    allData["online"],
+                                )
+                        elif variableValue == "163" and not allData["online"]:
+                            # on-grid but showing off-line wait for it to be set on-line by OADeviceDetail
+                            # allData["online"] = False
+                            _LOGGER.debug(
+                                "Inverter on-grid but off-line wait for OADevice to confirm, TestState: %s, hasBat: %s",
+                                variableValue,
+                                hasBat,
+                            )
 
-            return FetchResult.OK
-        else:
-            _LOGGER.debug("OA Device Variables Bad Response: %s", response)
-            return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
+        return FetchResult.OK
+
+    _LOGGER.debug("OA Device Variables Bad Response: %s", response)
+    return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
 
 
 class FoxESSPowerString(CoordinatorEntity, SensorEntity):
@@ -1390,7 +1384,7 @@ class FoxESSPowerString(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1421,7 +1415,7 @@ class FoxESSCurrent(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1452,7 +1446,7 @@ class FoxESSFreq(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1483,7 +1477,7 @@ class FoxESSPower(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1514,7 +1508,7 @@ class FoxESSVolt(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1542,7 +1536,7 @@ class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Reactive Power")
         self._attr_name = name + " - Reactive Power"
         self._attr_unique_id = deviceID + "reactive-power"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1570,7 +1564,7 @@ class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Power Factor")
         self._attr_name = name + " - Power Factor"
         self._attr_unique_id = deviceID + "power-factor"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1601,7 +1595,7 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1638,7 +1632,7 @@ class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Energy Throughput")
         self._attr_name = name + " - Energy Throughput"
         self._attr_unique_id = deviceID + "energy-throughput"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1673,7 +1667,7 @@ class FoxESSEnergyGridConsumption(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Grid Consumption")
         self._attr_name = name + " - Grid Consumption"
         self._attr_unique_id = deviceID + "grid-consumption"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1704,7 +1698,7 @@ class FoxESSEnergyFeedin(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - FeedIn")
         self._attr_name = name + " - FeedIn"
         self._attr_unique_id = deviceID + "feedIn"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1735,7 +1729,7 @@ class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Bat Charge")
         self._attr_name = name + " - Bat Charge"
         self._attr_unique_id = deviceID + "bat-charge"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1765,7 +1759,7 @@ class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Max Bat Charge Current")
         self._attr_name = name + " - Max Bat Charge Current"
         self._attr_unique_id = deviceID + "max-bat-charge-charge"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1795,7 +1789,7 @@ class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Max Bat Discharge Current")
         self._attr_name = name + " - Max Bat Discharge Current"
         self._attr_unique_id = deviceID + "max-bat-discharge-charge"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1826,7 +1820,7 @@ class FoxESSEnergyBatDischarge(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Bat Discharge")
         self._attr_name = name + " - Bat Discharge"
         self._attr_unique_id = deviceID + "bat-discharge"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1859,7 +1853,7 @@ class FoxESSEnergyLoad(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Load")
         self._attr_name = name + " - Load"
         self._attr_unique_id = deviceID + "load"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1891,7 +1885,7 @@ class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - PV Energy Total")
         self._attr_name = name + " - PVEnergyTotal"
         self._attr_unique_id = deviceID + "PVEnergyTotal"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1920,7 +1914,7 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
         self._attr_name = name + " - Inverter"
         self._attr_unique_id = deviceID + "Inverter"
         self._attr_icon = "mdi:solar-power"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -1940,19 +1934,17 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         if self.coordinator.data["online"] or (
-            self.coordinator.data["online"] == False
+            not self.coordinator.data["online"]
             and int(self.coordinator.data["addressbook"]["status"]) in [1, 2, 3]
         ):
             if "status" not in self.coordinator.data["addressbook"]:
                 _LOGGER.debug("addressbook status None")
+            elif int(self.coordinator.data["addressbook"]["status"]) == 1:
+                return "on-line"
+            elif int(self.coordinator.data["addressbook"]["status"]) == 2:
+                return "in-alarm"
             else:
-                if int(self.coordinator.data["addressbook"]["status"]) == 1:
-                    return "on-line"
-                else:
-                    if int(self.coordinator.data["addressbook"]["status"]) == 2:
-                        return "in-alarm"
-                    else:
-                        return "off-line"
+                return "off-line"
         return None
 
     @property
@@ -1983,7 +1975,7 @@ class FoxESSRunningState(CoordinatorEntity, SensorEntity):
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
         self._attr_icon = "mdi:state-machine"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -2037,7 +2029,7 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Solar")
         self._attr_name = name + " - Solar"
         self._attr_unique_id = deviceID + "solar"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -2073,8 +2065,7 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
             discharge = float(self.coordinator.data["report"]["dischargeEnergyToTal"])
 
         energysolar = round((loads + charge + feedIn - gridConsumption - discharge), 3)
-        if energysolar < 0:
-            energysolar = 0
+        energysolar = max(energysolar, 0)
         return round(energysolar, 3)
 
 
@@ -2088,7 +2079,7 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Solar Power")
         self._attr_name = name + " - Solar Power"
         self._attr_unique_id = deviceID + "solar-power"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -2103,13 +2094,10 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
         else:
             loads = float(self.coordinator.data["raw"]["loadsPower"])
 
-        if "batChargePower" not in self.coordinator.data["raw"]:
+        if "batChargePower" not in self.coordinator.data["raw"] or self.coordinator.data["raw"]["batChargePower"] is None:
             charge = 0
         else:
-            if self.coordinator.data["raw"]["batChargePower"] is None:
-                charge = 0
-            else:
-                charge = float(self.coordinator.data["raw"]["batChargePower"])
+            charge = float(self.coordinator.data["raw"]["batChargePower"])
 
         if "feedinPower" not in self.coordinator.data["raw"]:
             feedIn = 0
@@ -2123,18 +2111,14 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
                 self.coordinator.data["raw"]["gridConsumptionPower"]
             )
 
-        if "batDischargePower" not in self.coordinator.data["raw"]:
+        if "batDischargePower" not in self.coordinator.data["raw"] or self.coordinator.data["raw"]["batDischargePower"] is None:
             discharge = 0
         else:
-            if self.coordinator.data["raw"]["batDischargePower"] is None:
-                discharge = 0
-            else:
-                discharge = float(self.coordinator.data["raw"]["batDischargePower"])
+            discharge = float(self.coordinator.data["raw"]["batDischargePower"])
 
         # check if what was returned (that some time was negative) is <0, so fix it
         total = loads + charge + feedIn - gridConsumption - discharge
-        if total < 0:
-            total = 0
+        total = max(total, 0)
         return round(total, 3)
 
 
@@ -2150,7 +2134,7 @@ class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -2181,7 +2165,7 @@ class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Bat MinSoC")
         self._attr_name = name + " - Bat MinSoC"
         self._attr_unique_id = deviceID + "bat-minsoc"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -2212,7 +2196,7 @@ class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Bat minSocOnGrid")
         self._attr_name = name + " - Bat minSocOnGrid"
         self._attr_unique_id = deviceID + "bat-minSocOnGrid"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -2246,7 +2230,7 @@ class FoxESSTemp(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -2273,7 +2257,7 @@ class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Residual Energy")
         self._attr_name = name + " - Residual Energy"
         self._attr_unique_id = deviceID + "residual-energy"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
@@ -2305,7 +2289,7 @@ class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Response Time")
         self._attr_name = name + " - Response Time"
         self._attr_unique_id = deviceID + "response-time"
-        self.status = namedtuple(
+        self.status = NamedTuple(
             "status",
             [
                 ATTR_DATE,
