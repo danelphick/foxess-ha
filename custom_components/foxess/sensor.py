@@ -1219,45 +1219,7 @@ async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_
         test = json.loads(restOADeviceVariables.data)["result"]
 
         timercv = test[0].get("time")
-        try:
-            # format is "2025-02-21 16:38:29 GMT+0000" strptime is useless at international dates, so work out the offset
-            # tsrcv = datetime.strptime(testt, "%Y-%m-%d %H:%M:%S %Z%z") fails on some countries
-            _LOGGER.debug("OA Variables time: %s ", timercv)
-            tzoffsetsign = timercv[23:24]
-            tzoffsethr = int(timercv[24:26])
-            tzoffsetmin = int(timercv[26:28])
-            tzfull = str(timercv[23:28])
-            _LOGGER.debug(
-                "OA Variables tzoffsign: %s, hr: %s, min: %s, full: %s",
-                tzoffsetsign,
-                tzoffsethr,
-                tzoffsetmin,
-                tzfull,
-            )
-            if tzoffsetsign == "+":
-                tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * 1
-            else:
-                tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * -1
-            tsrcv = (parser.parse(timercv, ignoretz=True)).timestamp()
-            zulu = datetime.now().astimezone().strftime("%z")
-            if zulu != tzfull:
-                if xtzone:
-                    _LOGGER.debug(
-                        "OA Variables tsrcv applying offset: %s, offset: %s, zulu: %s",
-                        tsrcv,
-                        tzoffset,
-                        zulu,
-                    )
-                    tsrcv = tsrcv - tzoffset
-            else:
-                _LOGGER.debug(
-                    "OA Variables tsrcv is local: %s, zulu: %s, offset: %s ",
-                    tsrcv,
-                    zulu,
-                    tzoffset,
-                )
-        except:
-            tsrcv = 0
+        tsrcv = parse_foxess_timestamp(xtzone, timercv)
         age = 0
         if tsrcv != 0:
             testd = datetime.now()
@@ -1364,6 +1326,57 @@ async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_
 
     _LOGGER.debug("OA Device Variables Bad Response: %s", response)
     return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
+
+def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
+    """Parse a FoxESS timestamp string into a UTC Unix timestamp.
+
+    FoxESS returns timestamps in the format "2025-02-21 16:38:29 GMT+0000".
+    Standard strptime fails on some locales, so the UTC offset is extracted
+    manually and applied only when the device timezone differs from the local
+    system timezone (controlled by the xtzone flag).
+
+    Returns 0 on any parse failure.
+    """
+    try:
+        # format is "2025-02-21 16:38:29 GMT+0000" strptime is useless at international dates, so work out the offset
+        # tsrcv = datetime.strptime(testt, "%Y-%m-%d %H:%M:%S %Z%z") fails on some countries
+        _LOGGER.debug("OA Variables time: %s ", timercv)
+        tzoffsetsign = timercv[23:24]
+        tzoffsethr = int(timercv[24:26])
+        tzoffsetmin = int(timercv[26:28])
+        tzfull = str(timercv[23:28])
+        _LOGGER.debug(
+                "OA Variables tzoffsign: %s, hr: %s, min: %s, full: %s",
+                tzoffsetsign,
+                tzoffsethr,
+                tzoffsetmin,
+                tzfull,
+            )
+        if tzoffsetsign == "+":
+            tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * 1
+        else:
+            tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * -1
+        tsrcv = (parser.parse(timercv, ignoretz=True)).timestamp()
+        zulu = datetime.now().astimezone().strftime("%z")
+        if zulu != tzfull:
+            if xtzone:
+                _LOGGER.debug(
+                        "OA Variables tsrcv applying offset: %s, offset: %s, zulu: %s",
+                        tsrcv,
+                        tzoffset,
+                        zulu,
+                    )
+                tsrcv = tsrcv - tzoffset
+        else:
+            _LOGGER.debug(
+                    "OA Variables tsrcv is local: %s, zulu: %s, offset: %s ",
+                    tsrcv,
+                    zulu,
+                    tzoffset,
+                )
+    except:
+        tsrcv = 0
+    return tsrcv
 
 
 class FoxESSPowerString(CoordinatorEntity, SensorEntity):
