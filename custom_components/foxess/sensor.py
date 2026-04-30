@@ -747,6 +747,8 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
     return None
 
 class GetAuth:
+    """Generates authentication headers for FoxESS Cloud API requests."""
+
     def get_signature(self, token, path, lang="en"):
         """Generate headers for FoxESS Cloud authentication.
 
@@ -1389,6 +1391,8 @@ def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
 
 
 class FoxESSPowerString(CoordinatorEntity, SensorEntity):
+    """Sensor entity for string power measurements in kW."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -1422,6 +1426,8 @@ class FoxESSPowerString(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSCurrent(CoordinatorEntity, SensorEntity):
+    """Sensor entity for current measurements in amperes."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
@@ -1455,6 +1461,8 @@ class FoxESSCurrent(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSFreq(CoordinatorEntity, SensorEntity):
+    """Sensor entity for grid frequency measurements in Hz."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.FREQUENCY
     _attr_native_unit_of_measurement = UnitOfFrequency.HERTZ
@@ -1488,6 +1496,8 @@ class FoxESSFreq(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSPower(CoordinatorEntity, SensorEntity):
+    """Sensor entity for power measurements in kW."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -1521,6 +1531,8 @@ class FoxESSPower(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSVolt(CoordinatorEntity, SensorEntity):
+    """Sensor entity for voltage measurements in volts."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
@@ -1554,6 +1566,8 @@ class FoxESSVolt(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
+    """Sensor entity for reactive power measurements."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.REACTIVE_POWER
     _attr_native_unit_of_measurement = UnitOfReactivePower.VOLT_AMPERE_REACTIVE
@@ -1584,6 +1598,8 @@ class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
+    """Sensor entity for power factor measurements."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER_FACTOR
     _attr_native_unit_of_measurement = PERCENTAGE
@@ -1614,6 +1630,8 @@ class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
+    """Sensor entity for today's generated energy total in kWh."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1656,6 +1674,8 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
+    """Sensor entity for cumulative battery energy throughput in kWh."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1693,6 +1713,8 @@ class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSEnergyGridConsumption(CoordinatorEntity, SensorEntity):
+    """Sensor entity for today's grid consumption energy in kWh."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1726,6 +1748,8 @@ class FoxESSEnergyGridConsumption(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSEnergyFeedin(CoordinatorEntity, SensorEntity):
+    """Sensor entity for today's feed-in energy in kWh."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1759,6 +1783,8 @@ class FoxESSEnergyFeedin(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
+    """Sensor entity for today's battery charge energy in kWh."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1791,6 +1817,8 @@ class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
         return None
 
 class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
+    """Sensor entity for maximum battery charge current in amperes."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
@@ -1823,6 +1851,8 @@ class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
         return None
 
 class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
+    """Sensor entity for maximum battery discharge current in amperes."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
@@ -1856,6 +1886,8 @@ class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSEnergyBatDischarge(CoordinatorEntity, SensorEntity):
+    """Sensor entity for today's battery discharge energy in kWh."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1891,6 +1923,8 @@ class FoxESSEnergyBatDischarge(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSEnergyLoad(CoordinatorEntity, SensorEntity):
+    """Sensor entity for today's load energy in kWh."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1925,6 +1959,8 @@ class FoxESSEnergyLoad(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
+    """Sensor entity for today's total PV energy in kWh."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1959,6 +1995,8 @@ class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSInverter(CoordinatorEntity, SensorEntity):
+    """Sensor entity for inverter online/alarm/offline status."""
+
     def __init__(self, coordinator, name, deviceID):
         """Initialize the inverter status sensor entity."""
         super().__init__(coordinator=coordinator)
@@ -2020,6 +2058,8 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSRunningState(CoordinatorEntity, SensorEntity):
+    """Sensor entity for inverter running state with descriptive code labels."""
+
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
         """Initialize the running state sensor entity."""
         super().__init__(coordinator=coordinator)
@@ -2076,6 +2116,8 @@ class FoxESSRunningState(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
+    """Sensor entity for estimated solar energy production in kWh, derived from report totals."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -2128,6 +2170,8 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
+    """Sensor entity for estimated real-time solar power in kW, derived from raw readings."""
+
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -2183,6 +2227,8 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
+    """Sensor entity for battery state of charge percentage."""
+
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = "%"
 
@@ -2220,6 +2266,8 @@ class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
+    """Sensor entity for minimum allowed battery state of charge percentage."""
+
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = "%"
 
@@ -2254,6 +2302,8 @@ class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
+    """Sensor entity for minimum battery state of charge when on grid."""
+
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = "%"
 
@@ -2288,6 +2338,8 @@ class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSTemp(CoordinatorEntity, SensorEntity):
+    """Sensor entity for temperature measurements in degrees Celsius."""
+
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
 
@@ -2320,6 +2372,8 @@ class FoxESSTemp(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
+    """Sensor entity for residual battery energy in kWh."""
+
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
@@ -2355,6 +2409,8 @@ class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
 
 
 class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
+    """Sensor entity for FoxESS API response time in milliseconds."""
+
     _attr_native_unit_of_measurement = "mS"
 
     def __init__(self, coordinator, name, deviceID):
