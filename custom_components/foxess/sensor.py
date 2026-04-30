@@ -1,3 +1,10 @@
+"""Sensor platform for the FoxESS Home Assistant integration.
+
+Fetches real-time inverter data, daily/monthly energy reports, and battery
+settings from the FoxESS OpenAPI, and exposes them as Home Assistant sensor
+entities.
+"""
+
 from __future__ import annotations
 
 import asyncio
