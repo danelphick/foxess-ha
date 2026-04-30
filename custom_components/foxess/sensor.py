@@ -198,6 +198,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
     allData["addressbook"]["status"] = "3"  # assume inverter is off-line for now
 
     async def async_update_data():
+        """Fetch updated sensor data from FoxESS Cloud."""
         _LOGGER.debug("Updating data from https://www.foxesscloud.com/")
         nonlocal LastHour
         hournow = datetime.now().strftime("%H")  # update hour now
@@ -771,6 +772,7 @@ class GetAuth:
 
     @staticmethod
     def md5c(text="", _type="lower"):
+        """Return MD5 hash of text, lowercase by default or uppercase when _type is 'upper'."""
         res = hashlib.md5(text.encode(encoding="UTF-8")).hexdigest()
         if _type.__eq__("lower"):
             return res
@@ -778,6 +780,7 @@ class GetAuth:
 
 
 async def waitforAPI():
+    """Enforce the FoxESS API minimum 1-second interval between calls."""
     global _last_api  # noqa: PLW0603
     # wait for openAPI, there is a minimum of 1 second allowed between OpenAPI query calls
     # check if _last_api call was less than a second ago and if so delay the balance of 1 second
@@ -793,6 +796,7 @@ async def waitforAPI():
 
 
 async def getOADeviceDetail(hass, allData, devicesn, apiKey, *, v1_api: bool):
+    """Fetch device detail from FoxESS OpenAPI and populate allData['addressbook']."""
     await waitforAPI()
 
     if v1_api:
@@ -852,6 +856,7 @@ async def getOADeviceDetail(hass, allData, devicesn, apiKey, *, v1_api: bool):
 
 
 async def getOADeviceList(hass, allData, devicesn, apiKey):
+    """Fetch the device list from FoxESS OpenAPI and populate allData['addressbook']."""
     await waitforAPI()
 
     path = "/op/v0/device/list"
@@ -917,6 +922,7 @@ async def getOADeviceList(hass, allData, devicesn, apiKey):
 
 
 async def getOABatterySettings(hass, allData, devicesn, apiKey):
+    """Fetch battery SoC settings from FoxESS OpenAPI and populate allData['battery']."""
     await waitforAPI()  # check for api delay
 
     path = "/op/v0/device/battery/soc/get"
@@ -977,6 +983,7 @@ async def getOABatterySettings(hass, allData, devicesn, apiKey):
 
 
 async def getReport(hass, allData, apiKey, devicesn):
+    """Fetch monthly energy report data from FoxESS OpenAPI and populate allData['report']."""
     await waitforAPI()  # check for api delay
 
     path = _ENDPOINT_OA_REPORT
@@ -1056,6 +1063,7 @@ async def getReport(hass, allData, apiKey, devicesn):
 
 
 async def getReportDailyGeneration(hass, allData, apiKey, devicesn):
+    """Fetch daily generation totals from FoxESS OpenAPI and populate allData['reportDailyGeneration']."""
     await waitforAPI()  # check for api delay
 
     path = "/op/v0/device/generation"
@@ -1141,6 +1149,7 @@ async def getReportDailyGeneration(hass, allData, apiKey, devicesn):
 
 
 async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_var: bool, xtzone):
+    """Fetch real-time device variable data from FoxESS OpenAPI and populate allData['raw']."""
     await waitforAPI()  # check for api delay
 
     # "deviceSN" used for OpenAPI and it only fetches the real time data
@@ -1385,6 +1394,7 @@ class FoxESSPowerString(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the power string sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -1402,6 +1412,7 @@ class FoxESSPowerString(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return power string value in kW from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
                 _LOGGER.debug("%s None", self._keyValue)
@@ -1416,6 +1427,7 @@ class FoxESSCurrent(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the current sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -1433,6 +1445,7 @@ class FoxESSCurrent(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return current value in amperes from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
                 _LOGGER.debug("%s None", self._keyValue)
@@ -1447,6 +1460,7 @@ class FoxESSFreq(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfFrequency.HERTZ
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the frequency sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -1464,6 +1478,7 @@ class FoxESSFreq(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return frequency value in Hz from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
                 _LOGGER.debug("%s None", self._keyValue)
@@ -1478,6 +1493,7 @@ class FoxESSPower(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the power sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -1495,6 +1511,7 @@ class FoxESSPower(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return power value in kW from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
                 _LOGGER.debug("%s None", self._keyValue)
@@ -1509,6 +1526,7 @@ class FoxESSVolt(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the voltage sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -1526,6 +1544,7 @@ class FoxESSVolt(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return voltage value in volts from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
                 _LOGGER.debug("%s None", self._keyValue)
@@ -1540,6 +1559,7 @@ class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfReactivePower.VOLT_AMPERE_REACTIVE
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the reactive power sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Reactive Power")
         self._attr_name = name + " - Reactive Power"
@@ -1554,6 +1574,7 @@ class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return reactive power in VAr, scaled from kVAr."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if "ReactivePower" not in self.coordinator.data["raw"]:
                 _LOGGER.debug("ReactivePower None")
@@ -1568,6 +1589,7 @@ class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = PERCENTAGE
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the power factor sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Power Factor")
         self._attr_name = name + " - Power Factor"
@@ -1582,6 +1604,7 @@ class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return power factor as a percentage from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if "PowerFactor" not in self.coordinator.data["raw"]:
                 _LOGGER.debug("PowerFactor None")
@@ -1596,6 +1619,7 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the energy generated sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -1613,6 +1637,7 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return today's generated energy in kWh from the daily generation report."""
         if self._keyValue not in self.coordinator.data["reportDailyGeneration"]:
             _LOGGER.debug("%s None", self._keyValue)
         else:
@@ -1636,6 +1661,7 @@ class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the energy throughput sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Energy Throughput")
         self._attr_name = name + " - Energy Throughput"
@@ -1650,6 +1676,7 @@ class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return total energy throughput in kWh from raw data."""
         if "energyThroughput" not in self.coordinator.data["raw"]:
             _LOGGER.debug("raw Energy Throughput None")
         else:
@@ -1671,6 +1698,7 @@ class FoxESSEnergyGridConsumption(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the grid consumption energy sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Grid Consumption")
         self._attr_name = name + " - Grid Consumption"
@@ -1685,6 +1713,7 @@ class FoxESSEnergyGridConsumption(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return grid consumption energy in kWh from the monthly report."""
         if "gridConsumption" not in self.coordinator.data["report"]:
             _LOGGER.debug("report gridConsumption None")
         else:
@@ -1702,6 +1731,7 @@ class FoxESSEnergyFeedin(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the feed-in energy sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - FeedIn")
         self._attr_name = name + " - FeedIn"
@@ -1716,6 +1746,7 @@ class FoxESSEnergyFeedin(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return feed-in energy in kWh from the monthly report."""
         if "feedin" not in self.coordinator.data["report"]:
             _LOGGER.debug("report feedin None")
         else:
@@ -1733,6 +1764,7 @@ class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the battery charge energy sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Bat Charge")
         self._attr_name = name + " - Bat Charge"
@@ -1747,6 +1779,7 @@ class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return battery charge energy in kWh from the monthly report."""
         if "chargeEnergyToTal" not in self.coordinator.data["report"]:
             _LOGGER.debug("report chargeEnergyToTal None")
         else:
@@ -1763,6 +1796,7 @@ class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the max battery charge current sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Max Bat Charge Current")
         self._attr_name = name + " - Max Bat Charge Current"
@@ -1777,6 +1811,7 @@ class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return maximum battery charge current in amperes from raw data."""
         if "maxChargeCurrent" not in self.coordinator.data["raw"]:
             _LOGGER.debug("report maxChargeCurrent None")
         else:
@@ -1793,6 +1828,7 @@ class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the max battery discharge current sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Max Bat Discharge Current")
         self._attr_name = name + " - Max Bat Discharge Current"
@@ -1807,6 +1843,7 @@ class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return maximum battery discharge current in amperes from raw data."""
         if "maxDischargeCurrent" not in self.coordinator.data["raw"]:
             _LOGGER.debug("report maxDischargeCurrent None")
         else:
@@ -1824,6 +1861,7 @@ class FoxESSEnergyBatDischarge(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the battery discharge energy sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Bat Discharge")
         self._attr_name = name + " - Bat Discharge"
@@ -1838,6 +1876,7 @@ class FoxESSEnergyBatDischarge(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return battery discharge energy in kWh from the monthly report."""
         if "dischargeEnergyToTal" not in self.coordinator.data["report"]:
             _LOGGER.debug("report dischargeEnergyToTal None")
         else:
@@ -1857,6 +1896,7 @@ class FoxESSEnergyLoad(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the load energy sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Load")
         self._attr_name = name + " - Load"
@@ -1871,6 +1911,7 @@ class FoxESSEnergyLoad(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return load energy in kWh from the monthly report."""
         if "loads" not in self.coordinator.data["report"]:
             _LOGGER.debug("report loads None")
         else:
@@ -1889,6 +1930,7 @@ class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the PV total energy sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - PV Energy Total")
         self._attr_name = name + " - PVEnergyTotal"
@@ -1903,6 +1945,7 @@ class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return total PV energy in kWh from the monthly report."""
         if "PVEnergyTotal" not in self.coordinator.data["report"]:
             _LOGGER.debug("report PVEnergyTotal None")
         else:
@@ -1917,6 +1960,7 @@ class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
 
 class FoxESSInverter(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the inverter status sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Inverter")
         self._attr_name = name + " - Inverter"
@@ -1941,6 +1985,7 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return inverter status as a string (on-line, in-alarm, or off-line)."""
         if self.coordinator.data["online"] or (
             not self.coordinator.data["online"]
             and int(self.coordinator.data["addressbook"]["status"]) in [1, 2, 3]
@@ -1957,6 +2002,7 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
+        """Return device details as extra state attributes."""
         if "status" not in self.coordinator.data["addressbook"]:
             _LOGGER.debug("addressbook status attributes None")
             return None
@@ -1975,6 +2021,7 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
 
 class FoxESSRunningState(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the running state sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -1993,6 +2040,7 @@ class FoxESSRunningState(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        """Return inverter running state code with a descriptive label."""
         if self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
                 _LOGGER.debug("%s None", self._keyValue)
@@ -2033,6 +2081,7 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the solar energy sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Solar")
         self._attr_name = name + " - Solar"
@@ -2047,6 +2096,7 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return estimated solar energy in kWh, derived from report totals."""
         if "loads" not in self.coordinator.data["report"]:
             loads = 0
         else:
@@ -2083,6 +2133,7 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the solar power sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Solar Power")
         self._attr_name = name + " - Solar Power"
@@ -2097,6 +2148,7 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return estimated solar power in kW, derived from raw power readings."""
         if "loadsPower" not in self.coordinator.data["raw"]:
             loads = 0
         else:
@@ -2135,6 +2187,7 @@ class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = "%"
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the battery state of charge sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -2152,6 +2205,7 @@ class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return battery state of charge percentage from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
                 _LOGGER.debug("%s None", self._keyValue)
@@ -2161,6 +2215,7 @@ class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
 
     @property
     def icon(self):
+        """Return a battery icon for the current charge level."""
         return icon_for_battery_level(battery_level=self.native_value, charging=None)
 
 
@@ -2169,6 +2224,7 @@ class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = "%"
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the minimum battery SoC sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Bat MinSoC")
         self._attr_name = name + " - Bat MinSoC"
@@ -2183,6 +2239,7 @@ class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return minimum allowed battery SoC from battery settings."""
         if self.coordinator.data["online"] and self.coordinator.data["battery"]:
             if "minSoc" not in self.coordinator.data["battery"]:
                 _LOGGER.debug("minSoc None")
@@ -2192,6 +2249,7 @@ class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
 
     @property
     def icon(self):
+        """Return a battery icon for the minimum SoC level."""
         return icon_for_battery_level(battery_level=self.native_value, charging=None)
 
 
@@ -2200,6 +2258,7 @@ class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = "%"
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the minimum battery SoC on-grid sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Bat minSocOnGrid")
         self._attr_name = name + " - Bat minSocOnGrid"
@@ -2214,6 +2273,7 @@ class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return minimum battery SoC on-grid setting from battery settings."""
         if self.coordinator.data["online"] and self.coordinator.data["battery"]:
             if "minSocOnGrid" not in self.coordinator.data["battery"]:
                 _LOGGER.debug("minSocOnGrid None")
@@ -2223,6 +2283,7 @@ class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
 
     @property
     def icon(self):
+        """Return a battery icon for the minimum SoC on-grid level."""
         return icon_for_battery_level(battery_level=self.native_value, charging=None)
 
 
@@ -2231,6 +2292,7 @@ class FoxESSTemp(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the temperature sensor entity."""
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
@@ -2248,6 +2310,7 @@ class FoxESSTemp(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return temperature value in degrees Celsius from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
                 _LOGGER.debug("%s None", self._keyValue)
@@ -2261,6 +2324,7 @@ class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the residual energy sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Residual Energy")
         self._attr_name = name + " - Residual Energy"
@@ -2275,6 +2339,7 @@ class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return residual battery energy in kWh, correcting for API scale errors."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if "ResidualEnergy" not in self.coordinator.data["raw"]:
                 _LOGGER.debug("ResidualEnergy None")
@@ -2293,6 +2358,7 @@ class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = "mS"
 
     def __init__(self, coordinator, name, deviceID):
+        """Initialize the API response time sensor entity."""
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Response Time")
         self._attr_name = name + " - Response Time"
@@ -2307,6 +2373,7 @@ class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        """Return the last FoxESS API response time in milliseconds."""
         if "ResponseTime" not in self.coordinator.data["raw"]:
             _LOGGER.debug("ResponseTime None")
         else:
