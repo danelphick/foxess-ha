@@ -7,8 +7,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from homeassistant.core import HomeAssistant
-
 sys.path.insert(0, str(Path(__file__).parent))
 
 DOMAIN = "foxess"
