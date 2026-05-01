@@ -14,7 +14,6 @@ import hashlib
 import json
 import logging
 import time
-from typing import NamedTuple
 
 from dateutil import parser
 import voluptuous as vol
@@ -27,8 +26,6 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    ATTR_DATE,
-    ATTR_TIME,
     CONF_NAME,
     CONF_PASSWORD,
     CONF_USERNAME,
@@ -1529,13 +1526,6 @@ class FoxESSPowerString(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -1564,13 +1554,6 @@ class FoxESSCurrent(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -1599,13 +1582,6 @@ class FoxESSFreq(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -1634,13 +1610,6 @@ class FoxESSPower(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -1669,13 +1638,6 @@ class FoxESSVolt(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -1701,13 +1663,6 @@ class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Reactive Power")
         self._attr_name = name + " - Reactive Power"
         self._attr_unique_id = deviceID + "reactive-power"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -1733,13 +1688,6 @@ class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Power Factor")
         self._attr_name = name + " - Power Factor"
         self._attr_unique_id = deviceID + "power-factor"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -1768,13 +1716,6 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -1809,13 +1750,6 @@ class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Energy Throughput")
         self._attr_name = name + " - Energy Throughput"
         self._attr_unique_id = deviceID + "energy-throughput"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -1848,13 +1782,6 @@ class FoxESSEnergyGridConsumption(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Grid Consumption")
         self._attr_name = name + " - Grid Consumption"
         self._attr_unique_id = deviceID + "grid-consumption"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -1883,13 +1810,6 @@ class FoxESSEnergyFeedin(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - FeedIn")
         self._attr_name = name + " - FeedIn"
         self._attr_unique_id = deviceID + "feedIn"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -1918,13 +1838,6 @@ class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Bat Charge")
         self._attr_name = name + " - Bat Charge"
         self._attr_unique_id = deviceID + "bat-charge"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -1953,13 +1866,6 @@ class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Max Bat Charge Current")
         self._attr_name = name + " - Max Bat Charge Current"
         self._attr_unique_id = deviceID + "max-bat-charge-charge"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -1988,13 +1894,6 @@ class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Max Bat Discharge Current")
         self._attr_name = name + " - Max Bat Discharge Current"
         self._attr_unique_id = deviceID + "max-bat-discharge-charge"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -2023,13 +1922,6 @@ class FoxESSEnergyBatDischarge(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Bat Discharge")
         self._attr_name = name + " - Bat Discharge"
         self._attr_unique_id = deviceID + "bat-discharge"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -2060,13 +1952,6 @@ class FoxESSEnergyLoad(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Load")
         self._attr_name = name + " - Load"
         self._attr_unique_id = deviceID + "load"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -2096,13 +1981,6 @@ class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - PV Energy Total")
         self._attr_name = name + " - PVEnergyTotal"
         self._attr_unique_id = deviceID + "PVEnergyTotal"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -2129,22 +2007,6 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
         self._attr_name = name + " - Inverter"
         self._attr_unique_id = deviceID + "Inverter"
         self._attr_icon = "mdi:solar-power"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-                ATTR_DEVICE_SN,
-                ATTR_PLANTNAME,
-                ATTR_MODULESN,
-                ATTR_DEVICE_TYPE,
-                ATTR_MASTER,
-                ATTR_MANAGER,
-                ATTR_SLAVE,
-                ATTR_BATTERYLIST,
-                ATTR_LASTCLOUDSYNC,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -2195,13 +2057,6 @@ class FoxESSRunningState(CoordinatorEntity, SensorEntity):
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
         self._attr_icon = "mdi:state-machine"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -2253,13 +2108,6 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Solar")
         self._attr_name = name + " - Solar"
         self._attr_unique_id = deviceID + "solar"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2307,13 +2155,6 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Solar Power")
         self._attr_name = name + " - Solar Power"
         self._attr_unique_id = deviceID + "solar-power"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2372,13 +2213,6 @@ class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2408,13 +2242,6 @@ class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Bat MinSoC")
         self._attr_name = name + " - Bat MinSoC"
         self._attr_unique_id = deviceID + "bat-minsoc"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2444,13 +2271,6 @@ class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Bat minSocOnGrid")
         self._attr_name = name + " - Bat minSocOnGrid"
         self._attr_unique_id = deviceID + "bat-minSocOnGrid"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2483,13 +2303,6 @@ class FoxESSTemp(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2514,13 +2327,6 @@ class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Residual Energy")
         self._attr_name = name + " - Residual Energy"
         self._attr_unique_id = deviceID + "residual-energy"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2550,13 +2356,6 @@ class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
         _LOGGER.debug("Initiating Entity - Response Time")
         self._attr_name = name + " - Response Time"
         self._attr_unique_id = deviceID + "response-time"
-        self.status = NamedTuple(
-            "status",
-            [
-                ATTR_DATE,
-                ATTR_TIME,
-            ],
-        )
 
     @property
     def native_value(self) -> float | None:
