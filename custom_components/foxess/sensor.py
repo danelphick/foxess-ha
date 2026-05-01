@@ -132,6 +132,7 @@ PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     }
 )
 
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up FoxESS sensors from a config entry."""
     await _async_setup_foxess(
@@ -172,7 +173,9 @@ async def _fetch_device_detail(
     if Evo:
         geterror = await getOADeviceList(hass, allData, devicesn, apiKey)
     else:
-        geterror = await getOADeviceDetail(hass, allData, devicesn, apiKey, v1_api=V1_Api)
+        geterror = await getOADeviceDetail(
+            hass, allData, devicesn, apiKey, v1_api=V1_Api
+        )
     if geterror is FetchResult.AUTH_FAILED:
         if config_entry is not None:
             raise ConfigEntryAuthFailed("FoxESS API key rejected")
@@ -209,7 +212,15 @@ async def _fetch_live_data(
         await getOABatterySettings(hass, allData, devicesn, apiKey)
         await asyncio.sleep(1)  # OpenAPI demand
     # main real time data fetch, followed by reports
-    geterror = await getRaw(hass, allData, apiKey, devicesn, v1_api=V1_Api, restrict_get_var=RestrictGetVar, xtzone=xtzone)
+    geterror = await getRaw(
+        hass,
+        allData,
+        apiKey,
+        devicesn,
+        v1_api=V1_Api,
+        restrict_get_var=RestrictGetVar,
+        xtzone=xtzone,
+    )
     if geterror is FetchResult.AUTH_FAILED:
         if config_entry is not None:
             raise ConfigEntryAuthFailed("FoxESS API key rejected")
@@ -226,7 +237,9 @@ async def _fetch_live_data(
                 if tslice == 0:
                     # get daily generation at startup, then every 60 minutes
                     await asyncio.sleep(1)  # OpenAPI demand
-                    geterror = await getReportDailyGeneration(hass, allData, apiKey, devicesn)
+                    geterror = await getReportDailyGeneration(
+                        hass, allData, apiKey, devicesn
+                    )
                     if geterror:
                         _LOGGER.debug("getReportDailyGeneration False")
             else:
@@ -249,7 +262,7 @@ async def _fetch_live_data(
             _LOGGER.warning("Fox Cloud - DNS fail, retry in 1 minute")
             # retry in 1 minute
             if tslice != 0:
-                tslice = (tslice-1)
+                tslice = tslice - 1
             else:
                 tslice = RETRY_NEXT_SLOT
         else:
@@ -286,7 +299,9 @@ async def _async_update_data(
         geterror = FetchResult.OK
         if tslice % 15 == 0:
             # get device detail at startup, then every 15 minutes to save api calls
-            geterror = await _fetch_device_detail(hass, allData, devicesn, apiKey, Evo, V1_Api, config_entry)
+            geterror = await _fetch_device_detail(
+                hass, allData, devicesn, apiKey, Evo, V1_Api, config_entry
+            )
             if geterror is FetchResult.AUTH_FAILED:
                 return allData
             await asyncio.sleep(1)  # OpenAPI demand
@@ -300,7 +315,16 @@ async def _async_update_data(
             _LOGGER.debug(" Statetest %s", statetest)
             if statetest in [1, 2]:
                 geterror, tslice = await _fetch_live_data(
-                    hass, allData, devicesn, apiKey, V1_Api, RestrictGetVar, xtzone, config_entry, statetest, tslice
+                    hass,
+                    allData,
+                    devicesn,
+                    apiKey,
+                    V1_Api,
+                    RestrictGetVar,
+                    xtzone,
+                    config_entry,
+                    statetest,
+                    tslice,
                 )
                 if geterror is FetchResult.AUTH_FAILED:
                     return allData
@@ -317,15 +341,19 @@ async def _async_update_data(
                 else:
                     _LOGGER.warning("%s Cloud timeout, retry in 1 minute", name)
         else:
-            _LOGGER.warning("%s Cloud timeout on Device Detail, retry in 1 minute.", name)
+            _LOGGER.warning(
+                "%s Cloud timeout on Device Detail, retry in 1 minute.", name
+            )
 
         if geterror is not FetchResult.OK:
             allData["online"] = False
             if tslice != 0:
-                tslice = tslice-1
+                tslice = tslice - 1
                 # failed to get specific detail so retry slot in 1 minute
             else:
-                tslice = RETRY_NEXT_SLOT  # failed to get full data, try again in 1 minute
+                tslice = (
+                    RETRY_NEXT_SLOT  # failed to get full data, try again in 1 minute
+                )
 
     # actions here are every minute
     if tslice >= 59:
@@ -390,8 +418,17 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
 
     async def _update_callback() -> dict:
         return await _async_update_data(
-            hass, allData, devicesn, apiKey, Evo, V1_Api,
-            RestrictGetVar, xtzone, config_entry, name, timeslice,
+            hass,
+            allData,
+            devicesn,
+            apiKey,
+            Evo,
+            V1_Api,
+            RestrictGetVar,
+            xtzone,
+            config_entry,
+            name,
+            timeslice,
         )
 
     coordinator = DataUpdateCoordinator(
@@ -814,6 +851,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
 
     return None
 
+
 class GetAuth:
     """Generates authentication headers for FoxESS Cloud API requests."""
 
@@ -901,7 +939,9 @@ async def getOADeviceDetail(hass, allData, devicesn, apiKey, *, v1_api: bool):
         return FetchResult.ERROR
 
     response = json.loads(restOADeviceDetail.data)
-    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+    if response["errno"] == 0 and (
+        response["msg"] == "success" or response["msg"] == "Operation successful"
+    ):
         ResponseTime = round(time.time() * 1000) - timestamp
         if ResponseTime > 0:
             allData["raw"]["ResponseTime"] = ResponseTime
@@ -922,7 +962,11 @@ async def getOADeviceDetail(hass, allData, devicesn, apiKey, *, v1_api: bool):
         return FetchResult.OK
 
     _LOGGER.error("OA Device Detail Bad Response: %s", response)
-    return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
+    return (
+        FetchResult.AUTH_FAILED
+        if response["errno"] in _AUTH_ERRNO
+        else FetchResult.ERROR
+    )
 
 
 async def getOADeviceList(hass, allData, devicesn, apiKey):
@@ -936,9 +980,7 @@ async def getOADeviceList(hass, allData, devicesn, apiKey):
     _LOGGER.debug("OADevice List fetch %s%s", path, devicesn)
     timestamp = round(time.time() * 1000)
 
-    listData = (
-        '{ "currentPage": 1, "pageSize": 10}'
-    )
+    listData = '{ "currentPage": 1, "pageSize": 10}'
 
     restOADeviceList = RestData(
         hass,
@@ -960,7 +1002,9 @@ async def getOADeviceList(hass, allData, devicesn, apiKey):
         return FetchResult.ERROR
 
     response = json.loads(restOADeviceList.data)
-    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+    if response["errno"] == 0 and (
+        response["msg"] == "success" or response["msg"] == "Operation successful"
+    ):
         ResponseTime = round(time.time() * 1000) - timestamp
         if ResponseTime > 0:
             allData["raw"]["ResponseTime"] = ResponseTime
@@ -974,10 +1018,10 @@ async def getOADeviceList(hass, allData, devicesn, apiKey):
         allData["addressbook"] = item
         plantName = item["stationName"]
         allData["addressbook"]["plantName"] = plantName
-        allData["addressbook"]["masterVersion"] = 'not provided'
-        allData["addressbook"]["managerVersion"] = 'not provided'
-        allData["addressbook"]["slaveVersion"] = 'not provided'
-        allData["addressbook"]["batteryList"] = 'not provided'
+        allData["addressbook"]["masterVersion"] = "not provided"
+        allData["addressbook"]["managerVersion"] = "not provided"
+        allData["addressbook"]["slaveVersion"] = "not provided"
+        allData["addressbook"]["batteryList"] = "not provided"
         testBattery = item["hasBattery"]
         if testBattery:
             _LOGGER.debug("OA Device List System has Battery: %s", testBattery)
@@ -988,7 +1032,11 @@ async def getOADeviceList(hass, allData, devicesn, apiKey):
         return FetchResult.OK
 
     _LOGGER.error("OA Device List Bad Response: %s", response)
-    return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
+    return (
+        FetchResult.AUTH_FAILED
+        if response["errno"] in _AUTH_ERRNO
+        else FetchResult.ERROR
+    )
 
 
 async def getOABatterySettings(hass, allData, devicesn, apiKey):
@@ -1027,10 +1075,10 @@ async def getOABatterySettings(hass, allData, devicesn, apiKey):
             return FetchResult.ERROR
 
         response = json.loads(restOABatterySettings.data)
-        if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
-            _LOGGER.debug(
-                "OA Battery Settings Good Response: %s", response["result"]
-            )
+        if response["errno"] == 0 and (
+            response["msg"] == "success" or response["msg"] == "Operation successful"
+        ):
+            _LOGGER.debug("OA Battery Settings Good Response: %s", response["result"])
             result = response["result"]
             minSoc = result["minSoc"]
             minSocOnGrid = result["minSocOnGrid"]
@@ -1099,7 +1147,9 @@ async def getReport(hass, allData, apiKey, devicesn):
 
     # Openapi responded so process data
     response = json.loads(restOAReport.data)
-    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+    if response["errno"] == 0 and (
+        response["msg"] == "success" or response["msg"] == "Operation successful"
+    ):
         _LOGGER.debug(
             "OA Report Data fetched OK: %s %s ", response, restOAReport.data[:350]
         )
@@ -1167,7 +1217,9 @@ async def getReportDailyGeneration(hass, allData, apiKey, devicesn):
         return FetchResult.ERROR
 
     response = json.loads(restOAgen.data)
-    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+    if response["errno"] == 0 and (
+        response["msg"] == "success" or response["msg"] == "Operation successful"
+    ):
         _LOGGER.debug(
             "OA Daily Generation Report Data fetched OK Response: %s",
             restOAgen.data[:500],
@@ -1218,7 +1270,9 @@ async def getReportDailyGeneration(hass, allData, apiKey, devicesn):
     return FetchResult.ERROR
 
 
-async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_var: bool, xtzone):
+async def getRaw(
+    hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_var: bool, xtzone
+):
     """Fetch real-time device variable data from FoxESS OpenAPI and populate allData['raw']."""
     await waitforAPI()  # check for api delay
 
@@ -1237,10 +1291,11 @@ async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_
         _LOGGER.debug("Getting Device Variable in restricted mode")
 
         rawData = (
-            dsn + ',"variables":["ambientTemperation", "batChargePower", "batCurrent", "batCurrent_1", "batCurrent_2", "batDischargePower", "batTemperature", "batTemperature_1", "batTemperature_2", "batVolt", "batVolt_1", "batVolt_2", "boostTemperation", "chargeTemperature", "dspTemperature", "epsCurrentR", "epsCurrentS", "epsCurrentT", "epsPower", "epsPowerR", "epsPowerS", "epsPowerT", "epsVoltR", "epsVoltS", "epsVoltT", "feedinPower", "generationPower", "gridConsumptionPower", "input", "invBatCurrent", "invBatPower", "invBatVolt", "invTemperation", "loadsPower", "loadsPowerR", "loadsPowerS", "loadsPowerT", "meterPower", "meterPower2", "meterPowerR", "meterPowerS", "meterPowerT", "PowerFactor", "pv1Current", "pv1Power", "pv1Volt", "pv2Current", "pv2Power", "pv2Volt", "pv3Current", "pv3Power", "pv3Volt", "pv4Current", "pv4Power", "pv4Volt", "pvPower", "RCurrent", "ReactivePower", "RFreq", "RPower", "RVolt", "SCurrent", "SFreq", "SoC", "SPower", "SVolt", "TCurrent", "TFreq", "TPower", "TVolt", "SoC_1", "Soc_2", "ResidualEnergy", "energyThroughput", "runningState", "currentFaultCount"] }'
+            dsn
+            + ',"variables":["ambientTemperation", "batChargePower", "batCurrent", "batCurrent_1", "batCurrent_2", "batDischargePower", "batTemperature", "batTemperature_1", "batTemperature_2", "batVolt", "batVolt_1", "batVolt_2", "boostTemperation", "chargeTemperature", "dspTemperature", "epsCurrentR", "epsCurrentS", "epsCurrentT", "epsPower", "epsPowerR", "epsPowerS", "epsPowerT", "epsVoltR", "epsVoltS", "epsVoltT", "feedinPower", "generationPower", "gridConsumptionPower", "input", "invBatCurrent", "invBatPower", "invBatVolt", "invTemperation", "loadsPower", "loadsPowerR", "loadsPowerS", "loadsPowerT", "meterPower", "meterPower2", "meterPowerR", "meterPowerS", "meterPowerT", "PowerFactor", "pv1Current", "pv1Power", "pv1Volt", "pv2Current", "pv2Power", "pv2Volt", "pv3Current", "pv3Power", "pv3Volt", "pv4Current", "pv4Power", "pv4Volt", "pvPower", "RCurrent", "ReactivePower", "RFreq", "RPower", "RVolt", "SCurrent", "SFreq", "SoC", "SPower", "SVolt", "TCurrent", "TFreq", "TPower", "TVolt", "SoC_1", "Soc_2", "ResidualEnergy", "energyThroughput", "runningState", "currentFaultCount"] }'
         )
 
-    rawData = dsn + ' }'
+    rawData = dsn + " }"
 
     _LOGGER.debug("getRaw OA request: %s", rawData)
 
@@ -1280,7 +1335,9 @@ async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_
 
     # Openapi responded correctly
     response = json.loads(restOADeviceVariables.data)
-    if response["errno"] == 0 and (response["msg"]=='success' or response["msg"]=='Operation successful'):
+    if response["errno"] == 0 and (
+        response["msg"] == "success" or response["msg"] == "Operation successful"
+    ):
         ResponseTime = round(time.time() * 1000) - timestamp
         allData["raw"]["ResponseTime"] = max(ResponseTime, 0)
 
@@ -1333,13 +1390,17 @@ async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_
                 variableName = "invBatPower"  # use entity for single battery systems
             elif variableName == "ResidualEnergy":
                 if item.get("unit") is not None:
-                    scale=item["unit"]
-                    if scale in ['1.0kWh', 'kWh', None]:
-                        variableValue = round((variableValue * 100),2)
-                        _LOGGER.debug("OA Variables ResidualEnergy Scale: *100 %s", scale)
-                    elif scale=="0.1kWh":
-                        variableValue = round((variableValue * 10),2)
-                        _LOGGER.debug("OA Variables ResidualEnergy Scale: *10 %s", scale)
+                    scale = item["unit"]
+                    if scale in ["1.0kWh", "kWh", None]:
+                        variableValue = round((variableValue * 100), 2)
+                        _LOGGER.debug(
+                            "OA Variables ResidualEnergy Scale: *100 %s", scale
+                        )
+                    elif scale == "0.1kWh":
+                        variableValue = round((variableValue * 10), 2)
+                        _LOGGER.debug(
+                            "OA Variables ResidualEnergy Scale: *10 %s", scale
+                        )
                     else:
                         _LOGGER.debug("OA Variables ResidualEnergy Scale: %s", scale)
 
@@ -1393,7 +1454,12 @@ async def getRaw(hass, allData, apiKey, devicesn, *, v1_api: bool, restrict_get_
         return FetchResult.OK
 
     _LOGGER.debug("OA Device Variables Bad Response: %s", response)
-    return FetchResult.AUTH_FAILED if response["errno"] in _AUTH_ERRNO else FetchResult.ERROR
+    return (
+        FetchResult.AUTH_FAILED
+        if response["errno"] in _AUTH_ERRNO
+        else FetchResult.ERROR
+    )
+
 
 def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
     """Parse a FoxESS timestamp string into a UTC Unix timestamp.
@@ -1414,12 +1480,12 @@ def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
         tzoffsetmin = int(timercv[26:28])
         tzfull = str(timercv[23:28])
         _LOGGER.debug(
-                "OA Variables tzoffsign: %s, hr: %s, min: %s, full: %s",
-                tzoffsetsign,
-                tzoffsethr,
-                tzoffsetmin,
-                tzfull,
-            )
+            "OA Variables tzoffsign: %s, hr: %s, min: %s, full: %s",
+            tzoffsetsign,
+            tzoffsethr,
+            tzoffsetmin,
+            tzfull,
+        )
         if tzoffsetsign == "+":
             tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * 1
         else:
@@ -1429,20 +1495,20 @@ def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
         if zulu != tzfull:
             if xtzone:
                 _LOGGER.debug(
-                        "OA Variables tsrcv applying offset: %s, offset: %s, zulu: %s",
-                        tsrcv,
-                        tzoffset,
-                        zulu,
-                    )
+                    "OA Variables tsrcv applying offset: %s, offset: %s, zulu: %s",
+                    tsrcv,
+                    tzoffset,
+                    zulu,
+                )
                 tsrcv = tsrcv - tzoffset
         else:
             _LOGGER.debug(
-                    "OA Variables tsrcv is local: %s, zulu: %s, offset: %s ",
-                    tsrcv,
-                    zulu,
-                    tzoffset,
-                )
-    except (ValueError, IndexError, OverflowError):
+                "OA Variables tsrcv is local: %s, zulu: %s, offset: %s ",
+                tsrcv,
+                zulu,
+                tzoffset,
+            )
+    except ValueError, IndexError, OverflowError:
         tsrcv = 0
     return tsrcv
 
@@ -1873,6 +1939,7 @@ class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
             return energycharge
         return None
 
+
 class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
     """Sensor entity for maximum battery charge current in amperes."""
 
@@ -1906,6 +1973,7 @@ class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
                 charge = self.coordinator.data["raw"]["maxChargeCurrent"]
             return charge
         return None
+
 
 class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
     """Sensor entity for maximum battery discharge current in amperes."""
@@ -2255,7 +2323,10 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
         else:
             loads = float(self.coordinator.data["raw"]["loadsPower"])
 
-        if "batChargePower" not in self.coordinator.data["raw"] or self.coordinator.data["raw"]["batChargePower"] is None:
+        if (
+            "batChargePower" not in self.coordinator.data["raw"]
+            or self.coordinator.data["raw"]["batChargePower"] is None
+        ):
             charge = 0
         else:
             charge = float(self.coordinator.data["raw"]["batChargePower"])
@@ -2272,7 +2343,10 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
                 self.coordinator.data["raw"]["gridConsumptionPower"]
             )
 
-        if "batDischargePower" not in self.coordinator.data["raw"] or self.coordinator.data["raw"]["batDischargePower"] is None:
+        if (
+            "batDischargePower" not in self.coordinator.data["raw"]
+            or self.coordinator.data["raw"]["batDischargePower"] is None
+        ):
             discharge = 0
         else:
             discharge = float(self.coordinator.data["raw"]["batDischargePower"])
@@ -2457,7 +2531,7 @@ class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
             else:
                 re = self.coordinator.data["raw"]["ResidualEnergy"]
                 if re > 0:
-                    if re > 50: # if openAPI scale is invalid (bug)
+                    if re > 50:  # if openAPI scale is invalid (bug)
                         re = re / 100
                 else:
                     re = 0

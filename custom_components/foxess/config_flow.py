@@ -78,7 +78,6 @@ async def _fetch_device_list(hass, api_key: str) -> tuple[list[dict], str | None
     return devices, None
 
 
-
 class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for FoxESS."""
 
