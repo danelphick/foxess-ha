@@ -446,48 +446,36 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
 
     async_add_entities(
         [
-            FoxESSCurrent(
-                coordinator, name, deviceID, "PV1 Current", "pv1-current", "pv1Current"
+            *(
+                entity
+                for i in range(1, 7)
+                for entity in (
+                    FoxESSCurrent(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"PV{i} Current",
+                        f"pv{i}-current",
+                        f"pv{i}Current",
+                    ),
+                    FoxESSPower(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"PV{i} Power",
+                        f"pv{i}-power",
+                        f"pv{i}Power",
+                    ),
+                    FoxESSVolt(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"PV{i} Volt",
+                        f"pv{i}-volt",
+                        f"pv{i}Volt",
+                    ),
+                )
             ),
-            FoxESSPower(
-                coordinator, name, deviceID, "PV1 Power", "pv1-power", "pv1Power"
-            ),
-            FoxESSVolt(coordinator, name, deviceID, "PV1 Volt", "pv1-volt", "pv1Volt"),
-            FoxESSCurrent(
-                coordinator, name, deviceID, "PV2 Current", "pv2-current", "pv2Current"
-            ),
-            FoxESSPower(
-                coordinator, name, deviceID, "PV2 Power", "pv2-power", "pv2Power"
-            ),
-            FoxESSVolt(coordinator, name, deviceID, "PV2 Volt", "pv2-volt", "pv2Volt"),
-            FoxESSCurrent(
-                coordinator, name, deviceID, "PV3 Current", "pv3-current", "pv3Current"
-            ),
-            FoxESSPower(
-                coordinator, name, deviceID, "PV3 Power", "pv3-power", "pv3Power"
-            ),
-            FoxESSVolt(coordinator, name, deviceID, "PV3 Volt", "pv3-volt", "pv3Volt"),
-            FoxESSCurrent(
-                coordinator, name, deviceID, "PV4 Current", "pv4-current", "pv4Current"
-            ),
-            FoxESSPower(
-                coordinator, name, deviceID, "PV4 Power", "pv4-power", "pv4Power"
-            ),
-            FoxESSVolt(coordinator, name, deviceID, "PV4 Volt", "pv4-volt", "pv4Volt"),
-            FoxESSCurrent(
-                coordinator, name, deviceID, "PV5 Current", "pv5-current", "pv5Current"
-            ),
-            FoxESSPower(
-                coordinator, name, deviceID, "PV5 Power", "pv5-power", "pv5Power"
-            ),
-            FoxESSVolt(coordinator, name, deviceID, "PV5 Volt", "pv5-volt", "pv5Volt"),
-            FoxESSCurrent(
-                coordinator, name, deviceID, "PV6 Current", "pv6-current", "pv6Current"
-            ),
-            FoxESSPower(
-                coordinator, name, deviceID, "PV6 Power", "pv6-power", "pv6Power"
-            ),
-            FoxESSVolt(coordinator, name, deviceID, "PV6 Volt", "pv6-volt", "pv6Volt"),
             FoxESSPower(coordinator, name, deviceID, "PV Power", "pv-power", "pvPower"),
             FoxESSCurrent(
                 coordinator, name, deviceID, "R Current", "r-current", "RCurrent"
@@ -674,174 +662,34 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
     if ExtPV:
         async_add_entities(
             [
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV7 Current",
-                    "pv7-current",
-                    "pv7Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV7 Power", "pv7-power", "pv7Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV7 Volt", "pv7-volt", "pv7Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV8 Current",
-                    "pv8-current",
-                    "pv8Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV8 Power", "pv8-power", "pv8Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV8 Volt", "pv8-volt", "pv8Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV9 Current",
-                    "pv9-current",
-                    "pv9Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV9 Power", "pv9-power", "pv9Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV9 Volt", "pv9-volt", "pv9Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV10 Current",
-                    "pv10-current",
-                    "pv10Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV10 Power", "pv10-power", "pv10Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV10 Volt", "pv10-volt", "pv10Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV11 Current",
-                    "pv11-current",
-                    "pv11Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV11 Power", "pv11-power", "pv11Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV11 Volt", "pv11-volt", "pv11Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV12 Current",
-                    "pv12-current",
-                    "pv12Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV12 Power", "pv12-power", "pv12Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV12 Volt", "pv12-volt", "pv12Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV13 Current",
-                    "pv13-current",
-                    "pv13Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV13 Power", "pv13-power", "pv13Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV13 Volt", "pv13-volt", "pv13Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV14 Current",
-                    "pv14-current",
-                    "pv14Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV14 Power", "pv14-power", "pv14Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV14 Volt", "pv14-volt", "pv14Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV15 Current",
-                    "pv15-current",
-                    "pv15Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV15 Power", "pv15-power", "pv15Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV15 Volt", "pv15-volt", "pv15Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV16 Current",
-                    "pv16-current",
-                    "pv16Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV16 Power", "pv16-power", "pv16Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV16 Volt", "pv16-volt", "pv16Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV17 Current",
-                    "pv17-current",
-                    "pv17Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV17 Power", "pv17-power", "pv17Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV17 Volt", "pv17-volt", "pv17Volt"
-                ),
-                FoxESSCurrent(
-                    coordinator,
-                    name,
-                    deviceID,
-                    "PV18 Current",
-                    "pv18-current",
-                    "pv18Current",
-                ),
-                FoxESSPower(
-                    coordinator, name, deviceID, "PV18 Power", "pv18-power", "pv18Power"
-                ),
-                FoxESSVolt(
-                    coordinator, name, deviceID, "PV18 Volt", "pv18-volt", "pv18Volt"
-                ),
+                entity
+                for i in range(7, 19)
+                for entity in (
+                    FoxESSCurrent(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"PV{i} Current",
+                        f"pv{i}-current",
+                        f"pv{i}Current",
+                    ),
+                    FoxESSPower(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"PV{i} Power",
+                        f"pv{i}-power",
+                        f"pv{i}Power",
+                    ),
+                    FoxESSVolt(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"PV{i} Volt",
+                        f"pv{i}-volt",
+                        f"pv{i}Volt",
+                    ),
+                )
             ]
         )
 
