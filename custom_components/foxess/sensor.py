@@ -477,11 +477,44 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                 )
             ),
             FoxESSPower(coordinator, name, deviceID, "PV Power", "pv-power", "pvPower"),
-            FoxESSCurrent(
-                coordinator, name, deviceID, "R Current", "r-current", "RCurrent"
+            *(
+                entity
+                for phase in ("R", "S", "T")
+                for entity in (
+                    FoxESSCurrent(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"{phase} Current",
+                        f"{phase.lower()}-current",
+                        f"{phase}Current",
+                    ),
+                    FoxESSFreq(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"{phase} Freq",
+                        f"{phase.lower()}-freq",
+                        f"{phase}Freq",
+                    ),
+                    FoxESSPower(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"{phase} Power",
+                        f"{phase.lower()}-power",
+                        f"{phase}Power",
+                    ),
+                    FoxESSVolt(
+                        coordinator,
+                        name,
+                        deviceID,
+                        f"{phase} Volt",
+                        f"{phase.lower()}-volt",
+                        f"{phase}Volt",
+                    ),
+                )
             ),
-            FoxESSFreq(coordinator, name, deviceID, "R Freq", "r-freq", "RFreq"),
-            FoxESSPower(coordinator, name, deviceID, "R Power", "r-power", "RPower"),
             FoxESSPowerString(
                 coordinator,
                 name,
@@ -490,19 +523,6 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                 "meter2-power",
                 "meterPower2",
             ),
-            FoxESSVolt(coordinator, name, deviceID, "R Volt", "r-volt", "RVolt"),
-            FoxESSCurrent(
-                coordinator, name, deviceID, "S Current", "s-current", "SCurrent"
-            ),
-            FoxESSFreq(coordinator, name, deviceID, "S Freq", "s-freq", "SFreq"),
-            FoxESSPower(coordinator, name, deviceID, "S Power", "s-power", "SPower"),
-            FoxESSVolt(coordinator, name, deviceID, "S Volt", "s-volt", "SVolt"),
-            FoxESSCurrent(
-                coordinator, name, deviceID, "T Current", "t-current", "TCurrent"
-            ),
-            FoxESSFreq(coordinator, name, deviceID, "T Freq", "t-freq", "TFreq"),
-            FoxESSPower(coordinator, name, deviceID, "T Power", "t-power", "TPower"),
-            FoxESSVolt(coordinator, name, deviceID, "T Volt", "t-volt", "TVolt"),
             FoxESSReactivePower(coordinator, name, deviceID),
             FoxESSPowerFactor(coordinator, name, deviceID),
             FoxESSTemp(
