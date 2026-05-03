@@ -367,7 +367,6 @@ async def _async_update_data(
 
 async def _async_setup_foxess(hass, config, async_add_entities, config_entry=None):
     """Shared setup logic for platform and config entry."""
-    Evo = False
     name = config.get(CONF_NAME)
     deviceID = config.get(CONF_DEVICEID)
     devicesn = config.get(CONF_DEVICESN)
