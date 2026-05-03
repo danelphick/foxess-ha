@@ -1509,144 +1509,68 @@ def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
     return tsrcv
 
 
-class FoxESSPowerString(CoordinatorEntity, SensorEntity):
+class _RawDataSensor(CoordinatorEntity, SensorEntity):
+    """Base class for sensors that read a single keyed value from coordinator.data['raw']."""
+
+    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
+        """Initialize the sensor entity."""
+        super().__init__(coordinator=coordinator)
+        self._nameValue = nameValue
+        self._uniqueValue = uniqueValue
+        self._keyValue = keyValue
+        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
+        self._attr_name = f"{name} - {self._nameValue}"
+        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return value from raw data."""
+        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
+            if self._keyValue not in self.coordinator.data["raw"]:
+                _LOGGER.debug("%s None", self._keyValue)
+            else:
+                return self.coordinator.data["raw"][self._keyValue]
+        return None
+
+
+class FoxESSPowerString(_RawDataSensor):
     """Sensor entity for string power measurements in kW."""
 
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
 
-    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
-        """Initialize the power string sensor entity."""
-        super().__init__(coordinator=coordinator)
-        self._nameValue = nameValue
-        self._uniqueValue = uniqueValue
-        self._keyValue = keyValue
-        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
-        self._attr_name = f"{name} - {self._nameValue}"
-        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
 
-    @property
-    def native_value(self) -> str | None:
-        """Return power string value in kW from raw data."""
-        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
-            if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
-            else:
-                return self.coordinator.data["raw"][self._keyValue]
-        return None
-
-
-class FoxESSCurrent(CoordinatorEntity, SensorEntity):
+class FoxESSCurrent(_RawDataSensor):
     """Sensor entity for current measurements in amperes."""
 
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
 
-    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
-        """Initialize the current sensor entity."""
-        super().__init__(coordinator=coordinator)
-        self._nameValue = nameValue
-        self._uniqueValue = uniqueValue
-        self._keyValue = keyValue
-        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
-        self._attr_name = f"{name} - {self._nameValue}"
-        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
 
-    @property
-    def native_value(self) -> float | None:
-        """Return current value in amperes from raw data."""
-        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
-            if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
-            else:
-                return self.coordinator.data["raw"][self._keyValue]
-        return None
-
-
-class FoxESSFreq(CoordinatorEntity, SensorEntity):
+class FoxESSFreq(_RawDataSensor):
     """Sensor entity for grid frequency measurements in Hz."""
 
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.FREQUENCY
     _attr_native_unit_of_measurement = UnitOfFrequency.HERTZ
 
-    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
-        """Initialize the frequency sensor entity."""
-        super().__init__(coordinator=coordinator)
-        self._nameValue = nameValue
-        self._uniqueValue = uniqueValue
-        self._keyValue = keyValue
-        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
-        self._attr_name = f"{name} - {self._nameValue}"
-        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
 
-    @property
-    def native_value(self) -> float | None:
-        """Return frequency value in Hz from raw data."""
-        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
-            if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
-            else:
-                return self.coordinator.data["raw"][self._keyValue]
-        return None
-
-
-class FoxESSPower(CoordinatorEntity, SensorEntity):
+class FoxESSPower(_RawDataSensor):
     """Sensor entity for power measurements in kW."""
 
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
 
-    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
-        """Initialize the power sensor entity."""
-        super().__init__(coordinator=coordinator)
-        self._nameValue = nameValue
-        self._uniqueValue = uniqueValue
-        self._keyValue = keyValue
-        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
-        self._attr_name = f"{name} - {self._nameValue}"
-        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
 
-    @property
-    def native_value(self) -> float | None:
-        """Return power value in kW from raw data."""
-        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
-            if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
-            else:
-                return self.coordinator.data["raw"][self._keyValue]
-        return None
-
-
-class FoxESSVolt(CoordinatorEntity, SensorEntity):
+class FoxESSVolt(_RawDataSensor):
     """Sensor entity for voltage measurements in volts."""
 
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
-
-    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
-        """Initialize the voltage sensor entity."""
-        super().__init__(coordinator=coordinator)
-        self._nameValue = nameValue
-        self._uniqueValue = uniqueValue
-        self._keyValue = keyValue
-        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
-        self._attr_name = f"{name} - {self._nameValue}"
-        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-
-    @property
-    def native_value(self) -> float | None:
-        """Return voltage value in volts from raw data."""
-        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
-            if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
-            else:
-                return self.coordinator.data["raw"][self._keyValue]
-        return None
 
 
 class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
@@ -2043,19 +1967,10 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
         }
 
 
-class FoxESSRunningState(CoordinatorEntity, SensorEntity):
+class FoxESSRunningState(_RawDataSensor):
     """Sensor entity for inverter running state with descriptive code labels."""
 
-    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
-        """Initialize the running state sensor entity."""
-        super().__init__(coordinator=coordinator)
-        self._nameValue = nameValue
-        self._uniqueValue = uniqueValue
-        self._keyValue = keyValue
-        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
-        self._attr_name = f"{name} - {self._nameValue}"
-        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-        self._attr_icon = "mdi:state-machine"
+    _attr_icon = "mdi:state-machine"
 
     @property
     def native_value(self) -> str | None:
@@ -2197,31 +2112,11 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
         return round(total, 3)
 
 
-class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
+class FoxESSBatSoC(_RawDataSensor):
     """Sensor entity for battery state of charge percentage."""
 
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = "%"
-
-    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
-        """Initialize the battery state of charge sensor entity."""
-        super().__init__(coordinator=coordinator)
-        self._nameValue = nameValue
-        self._uniqueValue = uniqueValue
-        self._keyValue = keyValue
-        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
-        self._attr_name = f"{name} - {self._nameValue}"
-        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-
-    @property
-    def native_value(self) -> float | None:
-        """Return battery state of charge percentage from raw data."""
-        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
-            if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
-            else:
-                return self.coordinator.data["raw"][self._keyValue]
-        return None
 
     @property
     def icon(self):
@@ -2287,31 +2182,11 @@ class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
         return icon_for_battery_level(battery_level=self.native_value, charging=None)
 
 
-class FoxESSTemp(CoordinatorEntity, SensorEntity):
+class FoxESSTemp(_RawDataSensor):
     """Sensor entity for temperature measurements in degrees Celsius."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-
-    def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
-        """Initialize the temperature sensor entity."""
-        super().__init__(coordinator=coordinator)
-        self._nameValue = nameValue
-        self._uniqueValue = uniqueValue
-        self._keyValue = keyValue
-        _LOGGER.debug("Initiating Entity - %s", self._nameValue)
-        self._attr_name = f"{name} - {self._nameValue}"
-        self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
-
-    @property
-    def native_value(self) -> float | None:
-        """Return temperature value in degrees Celsius from raw data."""
-        if self.coordinator.data["online"] and self.coordinator.data["raw"]:
-            if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
-            else:
-                return self.coordinator.data["raw"][self._keyValue]
-        return None
 
 
 class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
