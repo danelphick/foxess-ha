@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 from custom_components.foxess.sensor import (
     FoxESSEnergyFeedin,
+    FoxESSEnergyLoad,
     FoxESSPower,
     FoxESSReactivePower,
     FoxESSRunningState,
@@ -106,8 +107,37 @@ class TestFoxESSEnergyFeedin:
         """Returns 0 when the report value is zero."""
         assert self._make({"report": {"feedin": 0}}).native_value == 0
 
+    def test_does_not_round_value(self) -> None:
+        """Returns the value unrounded (_round=False for this subclass)."""
+        assert self._make({"report": {"feedin": 12.12345}}).native_value == 12.12345
+
     def test_returns_none_when_key_missing(self) -> None:
         """Returns None when feedin key is absent from report."""
+        assert self._make({"report": {}}).native_value is None
+
+
+# ---------------------------------------------------------------------------
+# FoxESSEnergyLoad — _round=True subclass of _ReportSensor
+# ---------------------------------------------------------------------------
+
+
+class TestFoxESSEnergyLoad:
+    """Tests for FoxESSEnergyLoad native_value, which rounds to 3 decimal places."""
+
+    def _make(self, data: dict) -> FoxESSEnergyLoad:
+        """Create a FoxESSEnergyLoad sensor with the given coordinator data."""
+        return FoxESSEnergyLoad(_coordinator(data), "Inverter", "DEV01")
+
+    def test_rounds_value_to_3_decimal_places(self) -> None:
+        """Returns value rounded to 3 decimal places."""
+        assert self._make({"report": {"loads": 12.12345}}).native_value == 12.123
+
+    def test_returns_zero_when_value_is_zero(self) -> None:
+        """Returns 0 when the report value is zero."""
+        assert self._make({"report": {"loads": 0}}).native_value == 0
+
+    def test_returns_none_when_key_missing(self) -> None:
+        """Returns None when loads key is absent from report."""
         assert self._make({"report": {}}).native_value is None
 
 
