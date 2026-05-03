@@ -453,7 +453,12 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                 entity
                 for i in range(1, 7)
                 for entity in (
-                    make(FoxESSCurrent, f"PV{i} Current", f"pv{i}-current", f"pv{i}Current"),
+                    make(
+                        FoxESSCurrent,
+                        f"PV{i} Current",
+                        f"pv{i}-current",
+                        f"pv{i}Current",
+                    ),
                     make(FoxESSPower, f"PV{i} Power", f"pv{i}-power", f"pv{i}Power"),
                     make(FoxESSVolt, f"PV{i} Volt", f"pv{i}-volt", f"pv{i}Volt"),
                 )
@@ -463,19 +468,48 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                 entity
                 for phase in ("R", "S", "T")
                 for entity in (
-                    make(FoxESSCurrent, f"{phase} Current", f"{phase.lower()}-current", f"{phase}Current"),
-                    make(FoxESSFreq, f"{phase} Freq", f"{phase.lower()}-freq", f"{phase}Freq"),
-                    make(FoxESSPower, f"{phase} Power", f"{phase.lower()}-power", f"{phase}Power"),
-                    make(FoxESSVolt, f"{phase} Volt", f"{phase.lower()}-volt", f"{phase}Volt"),
+                    make(
+                        FoxESSCurrent,
+                        f"{phase} Current",
+                        f"{phase.lower()}-current",
+                        f"{phase}Current",
+                    ),
+                    make(
+                        FoxESSFreq,
+                        f"{phase} Freq",
+                        f"{phase.lower()}-freq",
+                        f"{phase}Freq",
+                    ),
+                    make(
+                        FoxESSPower,
+                        f"{phase} Power",
+                        f"{phase.lower()}-power",
+                        f"{phase}Power",
+                    ),
+                    make(
+                        FoxESSVolt,
+                        f"{phase} Volt",
+                        f"{phase.lower()}-volt",
+                        f"{phase}Volt",
+                    ),
                 )
             ),
             make(FoxESSPowerString, "Meter2 Power", "meter2-power", "meterPower2"),
             make(FoxESSReactivePower),
             make(FoxESSPowerFactor),
             make(FoxESSTemp, "Bat Temperature", "bat-temperature", "batTemperature"),
-            make(FoxESSTemp, "Bat Temperature2", "bat-temperature2", "batTemperature_2"),
-            make(FoxESSTemp, "Ambient Temperature", "ambient-temperature", "ambientTemperation"),
-            make(FoxESSTemp, "Boost Temperature", "boost-temperature", "boostTemperation"),
+            make(
+                FoxESSTemp, "Bat Temperature2", "bat-temperature2", "batTemperature_2"
+            ),
+            make(
+                FoxESSTemp,
+                "Ambient Temperature",
+                "ambient-temperature",
+                "ambientTemperation",
+            ),
+            make(
+                FoxESSTemp, "Boost Temperature", "boost-temperature", "boostTemperation"
+            ),
             make(FoxESSTemp, "Inv Temperature", "inv-temperature", "invTemperation"),
             make(FoxESSBatSoC, "Bat SoC", "bat-soc", "SoC"),
             make(FoxESSBatSoC, "Bat SoC1", "bat-soc1", "SoC_1"),
@@ -489,15 +523,47 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             make(FoxESSEnergyThroughput),
             make(FoxESSEnergySolar),
             make(FoxESSInverter),
-            make(FoxESSPowerString, "Generation Power", "-generation-power", "generationPower"),
-            make(FoxESSPowerString, "Grid Consumption Power", "grid-consumption-power", "gridConsumptionPower"),
+            make(
+                FoxESSPowerString,
+                "Generation Power",
+                "-generation-power",
+                "generationPower",
+            ),
+            make(
+                FoxESSPowerString,
+                "Grid Consumption Power",
+                "grid-consumption-power",
+                "gridConsumptionPower",
+            ),
             make(FoxESSPowerString, "FeedIn Power", "feedIn-power", "feedinPower"),
-            make(FoxESSPowerString, "Bat Discharge Power", "bat-discharge-power", "batDischargePower"),
-            make(FoxESSPowerString, "Bat Charge Power", "bat-charge-power", "batChargePower"),
+            make(
+                FoxESSPowerString,
+                "Bat Discharge Power",
+                "bat-discharge-power",
+                "batDischargePower",
+            ),
+            make(
+                FoxESSPowerString,
+                "Bat Charge Power",
+                "bat-charge-power",
+                "batChargePower",
+            ),
             make(FoxESSPowerString, "Load Power", "load-power", "loadsPower"),
-            make(FoxESSEnergyGenerated, "Energy Generated", "energy-generated", "value"),
-            make(FoxESSEnergyGenerated, "Energy Generated Month", "energy-generated-month", "month"),
-            make(FoxESSEnergyGenerated, "Energy Generated Cumulative", "energy-generated-cumulative", "cumulative"),
+            make(
+                FoxESSEnergyGenerated, "Energy Generated", "energy-generated", "value"
+            ),
+            make(
+                FoxESSEnergyGenerated,
+                "Energy Generated Month",
+                "energy-generated-month",
+                "month",
+            ),
+            make(
+                FoxESSEnergyGenerated,
+                "Energy Generated Cumulative",
+                "energy-generated-cumulative",
+                "cumulative",
+            ),
             make(FoxESSEnergyGridConsumption),
             make(FoxESSEnergyFeedin),
             make(FoxESSEnergyBatCharge),
@@ -518,7 +584,12 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                 entity
                 for i in range(7, 19)
                 for entity in (
-                    make(FoxESSCurrent, f"PV{i} Current", f"pv{i}-current", f"pv{i}Current"),
+                    make(
+                        FoxESSCurrent,
+                        f"PV{i} Current",
+                        f"pv{i}-current",
+                        f"pv{i}Current",
+                    ),
                     make(FoxESSPower, f"PV{i} Power", f"pv{i}-power", f"pv{i}Power"),
                     make(FoxESSVolt, f"PV{i} Volt", f"pv{i}-volt", f"pv{i}Volt"),
                 )
