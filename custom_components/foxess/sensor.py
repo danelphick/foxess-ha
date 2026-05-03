@@ -1509,6 +1509,12 @@ def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
     return tsrcv
 
 
+def _get_float(d: dict, key: str) -> float:
+    """Return float(d[key]) when key exists and value is not None, else 0.0."""
+    val = d.get(key)
+    return float(val) if val is not None else 0.0
+
+
 class _RawDataSensor(CoordinatorEntity, SensorEntity):
     """Base class for sensors that read a single keyed value from coordinator.data['raw']."""
 
@@ -1929,30 +1935,12 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         """Return estimated solar energy in kWh, derived from report totals."""
-        if "loads" not in self.coordinator.data["report"]:
-            loads = 0
-        else:
-            loads = float(self.coordinator.data["report"]["loads"])
-
-        if "chargeEnergyToTal" not in self.coordinator.data["report"]:
-            charge = 0
-        else:
-            charge = float(self.coordinator.data["report"]["chargeEnergyToTal"])
-
-        if "feedin" not in self.coordinator.data["report"]:
-            feedIn = 0
-        else:
-            feedIn = float(self.coordinator.data["report"]["feedin"])
-
-        if "gridConsumption" not in self.coordinator.data["report"]:
-            gridConsumption = 0
-        else:
-            gridConsumption = float(self.coordinator.data["report"]["gridConsumption"])
-
-        if "dischargeEnergyToTal" not in self.coordinator.data["report"]:
-            discharge = 0
-        else:
-            discharge = float(self.coordinator.data["report"]["dischargeEnergyToTal"])
+        report = self.coordinator.data["report"]
+        loads = _get_float(report, "loads")
+        charge = _get_float(report, "chargeEnergyToTal")
+        feedIn = _get_float(report, "feedin")
+        gridConsumption = _get_float(report, "gridConsumption")
+        discharge = _get_float(report, "dischargeEnergyToTal")
 
         energysolar = round((loads + charge + feedIn - gridConsumption - discharge), 3)
         energysolar = max(energysolar, 0)
@@ -1976,38 +1964,12 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         """Return estimated solar power in kW, derived from raw power readings."""
-        if "loadsPower" not in self.coordinator.data["raw"]:
-            loads = 0
-        else:
-            loads = float(self.coordinator.data["raw"]["loadsPower"])
-
-        if (
-            "batChargePower" not in self.coordinator.data["raw"]
-            or self.coordinator.data["raw"]["batChargePower"] is None
-        ):
-            charge = 0
-        else:
-            charge = float(self.coordinator.data["raw"]["batChargePower"])
-
-        if "feedinPower" not in self.coordinator.data["raw"]:
-            feedIn = 0
-        else:
-            feedIn = float(self.coordinator.data["raw"]["feedinPower"])
-
-        if "gridConsumptionPower" not in self.coordinator.data["raw"]:
-            gridConsumption = 0
-        else:
-            gridConsumption = float(
-                self.coordinator.data["raw"]["gridConsumptionPower"]
-            )
-
-        if (
-            "batDischargePower" not in self.coordinator.data["raw"]
-            or self.coordinator.data["raw"]["batDischargePower"] is None
-        ):
-            discharge = 0
-        else:
-            discharge = float(self.coordinator.data["raw"]["batDischargePower"])
+        raw = self.coordinator.data["raw"]
+        loads = _get_float(raw, "loadsPower")
+        charge = _get_float(raw, "batChargePower")
+        feedIn = _get_float(raw, "feedinPower")
+        gridConsumption = _get_float(raw, "gridConsumptionPower")
+        discharge = _get_float(raw, "batDischargePower")
 
         # check if what was returned (that some time was negative) is <0, so fix it
         total = loads + charge + feedIn - gridConsumption - discharge
