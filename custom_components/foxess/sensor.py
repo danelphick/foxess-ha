@@ -1103,9 +1103,7 @@ async def getRaw(
         result = test[0].get("datas")
         _LOGGER.debug("OA Variables Good Response: %s", result)
         # allData['raw'] = {}
-        for (
-            item
-        ) in result:  # json.loads(result): # restOADeviceVariables.data)['result']:
+        for item in result:
             variableName = item["variable"]
             # If value exists
             if item.get("value") is not None:
@@ -1156,25 +1154,24 @@ async def getRaw(
                         hasBat,
                         allData["online"],
                     )
-                    if variableValue is not None:
-                        if variableValue in ["161", "162"]:
-                            # waiting and solar only so set off-line flag
-                            if age < 361:
-                                _LOGGER.debug(
-                                    "Waiting but data less than 5 minutes old - allow sample, RunningState: %s, hasBat: %s online: %s",
-                                    variableValue,
-                                    hasBat,
-                                    allData["online"],
-                                )
-                            else:
-                                allData["online"] = False
-                                _LOGGER.debug(
-                                    "Waiting so set off-line state, TestState: %s, hasBat: %s online: %s",
-                                    variableValue,
-                                    hasBat,
-                                    allData["online"],
-                                )
-                        elif variableValue == "163" and not allData["online"]:
+                    if variableValue in ["161", "162"]:
+                        # waiting and solar only so set off-line flag
+                        if age < 361:
+                            _LOGGER.debug(
+                                "Waiting but data less than 5 minutes old - allow sample, RunningState: %s, hasBat: %s online: %s",
+                                variableValue,
+                                hasBat,
+                                allData["online"],
+                            )
+                        else:
+                            allData["online"] = False
+                            _LOGGER.debug(
+                                "Waiting so set off-line state, TestState: %s, hasBat: %s online: %s",
+                                variableValue,
+                                hasBat,
+                                allData["online"],
+                            )
+                    elif variableValue == "163" and not allData["online"]:
                             # on-grid but showing off-line wait for it to be set on-line by OADeviceDetail
                             # allData["online"] = False
                             _LOGGER.debug(
@@ -1218,10 +1215,9 @@ def parse_foxess_timestamp(xtzone: bool, timercv: str) -> float:
             tzoffsetmin,
             tzfull,
         )
-        if tzoffsetsign == "+":
-            tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * 1
-        else:
-            tzoffset = (tzoffsethr * 3600 + tzoffsetmin * 60) * -1
+        tzoffset = tzoffsethr * 3600 + tzoffsetmin * 60
+        if tzoffsetsign == "-":
+            tzoffset = -tzoffset
         tsrcv = (parser.parse(timercv, ignoretz=True)).timestamp()
         zulu = datetime.now().astimezone().strftime("%z")
         if zulu != tzfull:
@@ -1385,21 +1381,11 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         """Return today's generated energy in kWh from the daily generation report."""
-        if self._keyValue not in self.coordinator.data["reportDailyGeneration"]:
+        value = self.coordinator.data["reportDailyGeneration"].get(self._keyValue)
+        if value is None:
             _LOGGER.debug("%s None", self._keyValue)
-        else:
-            if self.coordinator.data["reportDailyGeneration"][self._keyValue] == 0:
-                energygenerated = 0
-            else:
-                energygenerated = self.coordinator.data["reportDailyGeneration"][
-                    self._keyValue
-                ]
-                if energygenerated > 0:
-                    energygenerated = round(energygenerated, 3)
-                else:
-                    energygenerated = 0
-            return energygenerated
-        return None
+            return None
+        return round(value, 3) if value > 0 else 0
 
 
 class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
@@ -1417,21 +1403,14 @@ class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = deviceID + "energy-throughput"
 
     @property
-    def native_value(self) -> str | None:
+    def native_value(self) -> float | None:
         """Return total energy throughput in kWh from raw data."""
-        if "energyThroughput" not in self.coordinator.data["raw"]:
+        value = self.coordinator.data["raw"].get("energyThroughput")
+        if value is None:
             _LOGGER.debug("raw Energy Throughput None")
-        else:
-            if self.coordinator.data["raw"]["energyThroughput"] == 0:
-                energygenerated = 0
-            else:
-                energygenerated = self.coordinator.data["raw"]["energyThroughput"]
-                if energygenerated > 0:
-                    energygenerated = round(energygenerated, 3)
-                else:
-                    energygenerated = 0
-            return energygenerated
-        return None
+            return None
+        return round(value, 3) if value > 0 else 0
+
 
 
 class _ReportSensor(CoordinatorEntity, SensorEntity):

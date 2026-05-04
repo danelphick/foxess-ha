@@ -1,13 +1,18 @@
 """Unit tests for FoxESS sensor entity native_value logic."""
 
-from unittest.mock import MagicMock
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.foxess.sensor import (
+    FetchResult,
     FoxESSEnergyFeedin,
+    FoxESSEnergyGenerated,
     FoxESSEnergyLoad,
+    FoxESSEnergyThroughput,
     FoxESSPower,
     FoxESSReactivePower,
     FoxESSRunningState,
+    getReportDailyGeneration,
 )
 import pytest
 
@@ -194,3 +199,133 @@ class TestFoxESSRunningState:
     def test_returns_none_when_no_raw_data(self) -> None:
         """Returns None when raw data is None."""
         assert self._make({"raw": None}).native_value is None
+
+
+# ---------------------------------------------------------------------------
+# FoxESSEnergyGenerated — reads from coordinator.data["reportDailyGeneration"]
+# ---------------------------------------------------------------------------
+
+
+class TestFoxESSEnergyGenerated:
+    """Tests for FoxESSEnergyGenerated native_value."""
+
+    def _make(self, data: dict) -> FoxESSEnergyGenerated:
+        return FoxESSEnergyGenerated(
+            _coordinator(data), "Inverter", "DEV01",
+            "Energy Generated", "energy-generated", "value",
+        )
+
+    def test_returns_rounded_positive_value(self) -> None:
+        """Returns value rounded to 3 decimal places when positive."""
+        assert self._make({"reportDailyGeneration": {"value": 12.12345}}).native_value == 12.123
+
+    def test_returns_zero_for_zero_value(self) -> None:
+        """Returns 0 when the stored value is zero."""
+        assert self._make({"reportDailyGeneration": {"value": 0}}).native_value == 0
+
+    def test_returns_zero_for_negative_value(self) -> None:
+        """Returns 0 when the stored value is negative."""
+        assert self._make({"reportDailyGeneration": {"value": -5.0}}).native_value == 0
+
+    def test_returns_none_when_key_missing(self) -> None:
+        """Returns None when the key is absent from reportDailyGeneration."""
+        assert self._make({"reportDailyGeneration": {}}).native_value is None
+
+
+# ---------------------------------------------------------------------------
+# FoxESSEnergyThroughput — reads from coordinator.data["raw"]
+# ---------------------------------------------------------------------------
+
+
+class TestFoxESSEnergyThroughput:
+    """Tests for FoxESSEnergyThroughput native_value."""
+
+    def _make(self, data: dict) -> FoxESSEnergyThroughput:
+        return FoxESSEnergyThroughput(_coordinator(data), "Inverter", "DEV01")
+
+    def test_returns_rounded_positive_value(self) -> None:
+        """Returns value rounded to 3 decimal places when positive."""
+        assert self._make({"raw": {"energyThroughput": 5.6789}}).native_value == 5.679
+
+    def test_returns_zero_for_zero_value(self) -> None:
+        """Returns 0 when the stored value is zero."""
+        assert self._make({"raw": {"energyThroughput": 0}}).native_value == 0
+
+    def test_returns_zero_for_negative_value(self) -> None:
+        """Returns 0 when the stored value is negative."""
+        assert self._make({"raw": {"energyThroughput": -1.0}}).native_value == 0
+
+    def test_returns_none_when_key_missing(self) -> None:
+        """Returns None when energyThroughput is absent from raw data."""
+        assert self._make({"raw": {}}).native_value is None
+
+
+# ---------------------------------------------------------------------------
+# getReportDailyGeneration — parses today/month/cumulative from API response
+# ---------------------------------------------------------------------------
+
+
+def _make_response(result: dict, errno: int = 0, msg: str = "success") -> str:
+    return json.dumps({"errno": errno, "msg": msg, "result": result})
+
+
+def _rest_data_mock(response_json: str | None) -> MagicMock:
+    mock = MagicMock()
+    mock.async_update = AsyncMock()
+    mock.last_exception = None
+    mock.data = response_json
+    return mock
+
+
+@pytest.mark.asyncio
+class TestGetReportDailyGeneration:
+    """Tests for getReportDailyGeneration data parsing."""
+
+    async def _call(self, response_json: str | None) -> dict:
+        all_data = {"reportDailyGeneration": {}}
+        with (
+            patch("custom_components.foxess.sensor.waitforAPI", new_callable=AsyncMock),
+            patch("custom_components.foxess.sensor.GetAuth"),
+            patch(
+                "custom_components.foxess.sensor.RestData",
+                return_value=_rest_data_mock(response_json),
+            ),
+        ):
+            result = await getReportDailyGeneration(MagicMock(), all_data, "key", "SN1")
+        return result, all_data["reportDailyGeneration"]
+
+    async def test_all_keys_present(self) -> None:
+        """Stores today→value, month→month, cumulative→cumulative when all present."""
+        payload = _make_response({"today": 1.5, "month": 30.0, "cumulative": 500.0})
+        result, data = await self._call(payload)
+        assert result is FetchResult.OK
+        assert data == {"value": 1.5, "month": 30.0, "cumulative": 500.0}
+
+    async def test_missing_today_defaults_to_zero(self) -> None:
+        """Sets value to 0 when today is absent from the API result."""
+        payload = _make_response({"month": 30.0, "cumulative": 500.0})
+        _, data = await self._call(payload)
+        assert data["value"] == 0
+
+    async def test_missing_month_defaults_to_zero(self) -> None:
+        """Sets month to 0 when month is absent from the API result."""
+        payload = _make_response({"today": 1.5, "cumulative": 500.0})
+        _, data = await self._call(payload)
+        assert data["month"] == 0
+
+    async def test_missing_cumulative_defaults_to_zero(self) -> None:
+        """Sets cumulative to 0 when cumulative is absent from the API result."""
+        payload = _make_response({"today": 1.5, "month": 30.0})
+        _, data = await self._call(payload)
+        assert data["cumulative"] == 0
+
+    async def test_bad_errno_returns_error(self) -> None:
+        """Returns ERROR when the API response errno is non-zero."""
+        payload = _make_response({}, errno=40001, msg="error")
+        result, _ = await self._call(payload)
+        assert result is FetchResult.ERROR
+
+    async def test_no_data_returns_error(self) -> None:
+        """Returns ERROR when RestData yields no data."""
+        result, _ = await self._call(None)
+        assert result is FetchResult.ERROR
