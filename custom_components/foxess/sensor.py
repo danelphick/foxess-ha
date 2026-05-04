@@ -1248,7 +1248,13 @@ def _get_float(d: dict, key: str) -> float:
 
 
 class _RawDataSensor(CoordinatorEntity, SensorEntity):
-    """Base class for sensors that read a single keyed value from coordinator.data['raw']."""
+    """Base class for reusable raw-data sensors configured at instantiation time.
+
+    Use this when the same sensor class is instantiated multiple times with different
+    names, unique IDs, and raw-data keys — for example, one class reused across all PV
+    strings or grid phases. The name, unique ID, and key are passed as constructor
+    arguments so each instance can be configured independently.
+    """
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
         """Initialize the sensor entity."""
@@ -1272,7 +1278,13 @@ class _RawDataSensor(CoordinatorEntity, SensorEntity):
 
 
 class _FixedRawDataSensor(CoordinatorEntity, SensorEntity):
-    """Base class for fixed-name sensors reading a single value from coordinator.data['raw']."""
+    """Base class for single-purpose raw-data sensors with identity baked into the class.
+
+    Use this when the sensor class represents exactly one thing, so the name, unique ID,
+    and raw-data key are fixed and declared as class attributes rather than passed at
+    instantiation. Override _transform() to apply scaling or value correction without
+    repeating the online/raw guard logic.
+    """
 
     _name_value: str
     _unique_value: str
