@@ -1174,13 +1174,13 @@ async def getRaw(
                                 allData["online"],
                             )
                     elif variableValue == "163" and not allData["online"]:
-                            # on-grid but showing off-line wait for it to be set on-line by OADeviceDetail
-                            # allData["online"] = False
-                            _LOGGER.debug(
-                                "Inverter on-grid but off-line wait for OADevice to confirm, TestState: %s, hasBat: %s",
-                                variableValue,
-                                hasBat,
-                            )
+                        # on-grid but showing off-line wait for it to be set on-line by OADeviceDetail
+                        # allData["online"] = False
+                        _LOGGER.debug(
+                            "Inverter on-grid but off-line wait for OADevice to confirm, TestState: %s, hasBat: %s",
+                            variableValue,
+                            hasBat,
+                        )
 
         return FetchResult.OK
 
@@ -1637,18 +1637,6 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
         return round(energysolar, 3)
 
 
-def getValueFromCoordinator(coordinator, report_field, value_field):
-    value = coordinator.data[report_field].get(value_field)
-    return float(value) if value is not None else 0
-
-
-def getValuesFromCoordinator(coordinator, report_field, value_fields):
-    return (
-        getValueFromCoordinator(coordinator, report_field, field)
-        for field in value_fields
-    )
-
-
 class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
     """Sensor entity for estimated real-time solar power in kW, derived from raw readings."""
 
@@ -1694,29 +1682,15 @@ class FoxESSNewSolarPower(CoordinatorEntity, SensorEntity):
     def native_value(self) -> float | None:
         if not self.coordinator.data["online"] or not self.coordinator.data["raw"]:
             return None
-        (
-            loads,
-            charge,
-            feedIn,
-            gridConsumption,
-            discharge,
-            secondInverter,
-            inverterOutput,
-            pv,
-        ) = getValuesFromCoordinator(
-            self.coordinator,
-            "raw",
-            [
-                "loadsPower",
-                "batChargePower",
-                "feedinPower",
-                "gridConsumptionPower",
-                "batDischargePower",
-                "meterPower2",
-                "generationPower",
-                "pvPower",
-            ],
-        )
+        raw = self.coordinator.data["raw"]
+        loads = _get_float(raw, "loadsPower")
+        charge = _get_float(raw, "batChargePower")
+        feedIn = _get_float(raw, "feedinPower")
+        gridConsumption = _get_float(raw, "gridConsumptionPower")
+        discharge = _get_float(raw, "batDischargePower")
+        secondInverter = _get_float(raw, "meterPower2")
+        inverterOutput = _get_float(raw, "generationPower")
+        pv = _get_float(raw, "pvPower")
 
         _LOGGER.debug("New Solar Power:\n")
         _LOGGER.debug("  loads:           %.3f", loads)
@@ -1764,19 +1738,10 @@ class FoxESSNewBatDischargePower(CoordinatorEntity, SensorEntity):
     def native_value(self) -> float | None:
         if not self.coordinator.data["online"] or not self.coordinator.data["raw"]:
             return None
-        (
-            discharge,
-            inverterOutput,
-            pv,
-        ) = getValuesFromCoordinator(
-            self.coordinator,
-            "raw",
-            [
-                "batDischargePower",
-                "generationPower",
-                "pvPower",
-            ],
-        )
+        raw = self.coordinator.data["raw"]
+        discharge = _get_float(raw, "batDischargePower")
+        inverterOutput = _get_float(raw, "generationPower")
+        pv = _get_float(raw, "pvPower")
 
         _LOGGER.debug("New Discharge Power:\n")
         _LOGGER.debug("  discharge:       %.3f", discharge)
