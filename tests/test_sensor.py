@@ -5,12 +5,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.foxess.sensor import (
     FetchResult,
+    FoxESSBatMinSoC,
+    FoxESSBatMinSoConGrid,
     FoxESSEnergyFeedin,
     FoxESSEnergyGenerated,
     FoxESSEnergyLoad,
     FoxESSEnergyThroughput,
     FoxESSPower,
+    FoxESSPowerFactor,
     FoxESSReactivePower,
+    FoxESSResidualEnergy,
     FoxESSRunningState,
     getReportDailyGeneration,
 )
@@ -245,19 +249,23 @@ class TestFoxESSEnergyThroughput:
 
     def test_returns_rounded_positive_value(self) -> None:
         """Returns value rounded to 3 decimal places when positive."""
-        assert self._make({"raw": {"energyThroughput": 5.6789}}).native_value == 5.679
+        assert self._make({"online": True, "raw": {"energyThroughput": 5.6789}}).native_value == 5.679
 
     def test_returns_zero_for_zero_value(self) -> None:
         """Returns 0 when the stored value is zero."""
-        assert self._make({"raw": {"energyThroughput": 0}}).native_value == 0
+        assert self._make({"online": True, "raw": {"energyThroughput": 0}}).native_value == 0
 
     def test_returns_zero_for_negative_value(self) -> None:
         """Returns 0 when the stored value is negative."""
-        assert self._make({"raw": {"energyThroughput": -1.0}}).native_value == 0
+        assert self._make({"online": True, "raw": {"energyThroughput": -1.0}}).native_value == 0
 
     def test_returns_none_when_key_missing(self) -> None:
         """Returns None when energyThroughput is absent from raw data."""
-        assert self._make({"raw": {}}).native_value is None
+        assert self._make({"online": True, "raw": {}}).native_value is None
+
+    def test_returns_none_when_offline(self) -> None:
+        """Returns None when the inverter is offline."""
+        assert self._make({"online": False, "raw": {"energyThroughput": 5.0}}).native_value is None
 
 
 # ---------------------------------------------------------------------------
@@ -329,3 +337,110 @@ class TestGetReportDailyGeneration:
         """Returns ERROR when RestData yields no data."""
         result, _ = await self._call(None)
         assert result is FetchResult.ERROR
+
+
+# ---------------------------------------------------------------------------
+# FoxESSPowerFactor — pure _FixedRawDataSensor subclass (no native_value override)
+# ---------------------------------------------------------------------------
+
+
+class TestFoxESSPowerFactor:
+    """Tests for FoxESSPowerFactor native_value via _FixedRawDataSensor base class."""
+
+    def _make(self, data: dict) -> FoxESSPowerFactor:
+        return FoxESSPowerFactor(_coordinator(data), "Inverter", "DEV01")
+
+    def test_returns_value_when_online_and_key_present(self) -> None:
+        """Returns the raw value when online and PowerFactor key exists."""
+        assert self._make({"online": True, "raw": {"PowerFactor": 0.98}}).native_value == 0.98
+
+    def test_returns_none_when_key_missing(self) -> None:
+        """Returns None when PowerFactor is absent from raw data."""
+        assert self._make({"online": True, "raw": {}}).native_value is None
+
+    def test_returns_none_when_offline(self) -> None:
+        """Returns None when the inverter is offline."""
+        assert self._make({"online": False, "raw": {"PowerFactor": 0.98}}).native_value is None
+
+    def test_returns_none_when_raw_falsy(self) -> None:
+        """Returns None when raw data is None."""
+        assert self._make({"online": True, "raw": None}).native_value is None
+
+
+# ---------------------------------------------------------------------------
+# FoxESSResidualEnergy — _FixedRawDataSensor subclass with scale-correction logic
+# ---------------------------------------------------------------------------
+
+
+class TestFoxESSResidualEnergy:
+    """Tests for FoxESSResidualEnergy native_value scale-correction behaviour."""
+
+    def _make(self, data: dict) -> FoxESSResidualEnergy:
+        return FoxESSResidualEnergy(_coordinator(data), "Inverter", "DEV01")
+
+    def test_returns_value_unchanged_when_in_normal_range(self) -> None:
+        """Returns the raw value unmodified when 0 < value <= 50."""
+        assert self._make({"online": True, "raw": {"ResidualEnergy": 10.0}}).native_value == 10.0
+
+    def test_divides_by_100_when_value_exceeds_50(self) -> None:
+        """Divides by 100 when value > 50, correcting the API scale bug."""
+        assert self._make({"online": True, "raw": {"ResidualEnergy": 1500.0}}).native_value == 15.0
+
+    def test_returns_zero_when_value_is_zero(self) -> None:
+        """Returns 0 when ResidualEnergy is zero."""
+        assert self._make({"online": True, "raw": {"ResidualEnergy": 0}}).native_value == 0
+
+    def test_returns_none_when_key_missing(self) -> None:
+        """Returns None when ResidualEnergy is absent from raw data."""
+        assert self._make({"online": True, "raw": {}}).native_value is None
+
+    def test_returns_none_when_offline(self) -> None:
+        """Returns None when the inverter is offline."""
+        assert self._make({"online": False, "raw": {"ResidualEnergy": 10.0}}).native_value is None
+
+
+# ---------------------------------------------------------------------------
+# FoxESSBatMinSoC / FoxESSBatMinSoConGrid — _BatterySettingsSensor subclasses
+# ---------------------------------------------------------------------------
+
+
+class TestFoxESSBatMinSoC:
+    """Tests for FoxESSBatMinSoC native_value via _BatterySettingsSensor base class."""
+
+    def _make(self, data: dict) -> FoxESSBatMinSoC:
+        return FoxESSBatMinSoC(_coordinator(data), "Inverter", "DEV01")
+
+    def test_returns_value_when_online_and_key_present(self) -> None:
+        """Returns the battery minSoc value when online."""
+        assert self._make({"online": True, "battery": {"minSoc": 10}}).native_value == 10
+
+    def test_returns_none_when_key_missing(self) -> None:
+        """Returns None when minSoc is absent from battery data."""
+        assert self._make({"online": True, "battery": {}}).native_value is None
+
+    def test_returns_none_when_offline(self) -> None:
+        """Returns None when the inverter is offline."""
+        assert self._make({"online": False, "battery": {"minSoc": 10}}).native_value is None
+
+    def test_returns_none_when_battery_falsy(self) -> None:
+        """Returns None when battery data is empty/falsy."""
+        assert self._make({"online": True, "battery": None}).native_value is None
+
+
+class TestFoxESSBatMinSoConGrid:
+    """Tests for FoxESSBatMinSoConGrid native_value via _BatterySettingsSensor base class."""
+
+    def _make(self, data: dict) -> FoxESSBatMinSoConGrid:
+        return FoxESSBatMinSoConGrid(_coordinator(data), "Inverter", "DEV01")
+
+    def test_returns_value_when_online_and_key_present(self) -> None:
+        """Returns the battery minSocOnGrid value when online."""
+        assert self._make({"online": True, "battery": {"minSocOnGrid": 20}}).native_value == 20
+
+    def test_returns_none_when_key_missing(self) -> None:
+        """Returns None when minSocOnGrid is absent from battery data."""
+        assert self._make({"online": True, "battery": {}}).native_value is None
+
+    def test_returns_none_when_offline(self) -> None:
+        """Returns None when the inverter is offline."""
+        assert self._make({"online": False, "battery": {"minSocOnGrid": 20}}).native_value is None
