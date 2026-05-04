@@ -973,40 +973,25 @@ async def getReportDailyGeneration(hass, allData, apiKey, devicesn):
         )
 
         parsed = json.loads(restOAgen.data)["result"]
-        if "today" not in parsed:
-            allData["reportDailyGeneration"]["value"] = 0
-            _LOGGER.debug(
-                "OA Daily Generation Report data, today has no value: %s set to 0",
-                parsed,
-            )
-        else:
-            allData["reportDailyGeneration"]["value"] = parsed["today"]
-            _LOGGER.debug(
-                "OA Daily Generation Report data: todays value %s ", parsed["today"]
-            )
-        if "month" not in parsed:
-            allData["reportDailyGeneration"]["month"] = 0
-            _LOGGER.debug(
-                "OA Daily Generation Report data, month has no value: %s set to 0",
-                parsed,
-            )
-        else:
-            allData["reportDailyGeneration"]["month"] = parsed["month"]
-            _LOGGER.debug(
-                "OA Daily Generation Report data: month value %s ", parsed["month"]
-            )
-        if "cumulative" not in parsed:
-            allData["reportDailyGeneration"]["cumulative"] = 0
-            _LOGGER.debug(
-                "OA Daily Generation Report data, cumulative has no value: %s set to 0",
-                parsed,
-            )
-        else:
-            allData["reportDailyGeneration"]["cumulative"] = parsed["cumulative"]
-            _LOGGER.debug(
-                "OA Daily Generation Report data: cumulative value %s ",
-                parsed["cumulative"],
-            )
+        for parsed_key, store_key in [
+            ("today", "value"),
+            ("month", "month"),
+            ("cumulative", "cumulative"),
+        ]:
+            if parsed_key not in parsed:
+                allData["reportDailyGeneration"][store_key] = 0
+                _LOGGER.debug(
+                    "OA Daily Generation Report data, %s has no value: %s set to 0",
+                    parsed_key,
+                    parsed,
+                )
+            else:
+                allData["reportDailyGeneration"][store_key] = parsed[parsed_key]
+                _LOGGER.debug(
+                    "OA Daily Generation Report data: %s value %s",
+                    parsed_key,
+                    parsed[parsed_key],
+                )
         return FetchResult.OK
 
     _LOGGER.debug(
