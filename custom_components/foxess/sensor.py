@@ -1248,7 +1248,13 @@ def _get_float(d: dict, key: str) -> float:
 
 
 class _RawDataSensor(CoordinatorEntity, SensorEntity):
-    """Base class for sensors that read a single keyed value from coordinator.data['raw']."""
+    """Base class for reusable raw-data sensors configured at instantiation time.
+
+    Use this when the same sensor class is instantiated multiple times with different
+    names, unique IDs, and raw-data keys — for example, one class reused across all PV
+    strings or grid phases. The name, unique ID, and key are passed as constructor
+    arguments so each instance can be configured independently.
+    """
 
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
         """Initialize the sensor entity."""
@@ -1272,8 +1278,15 @@ class _RawDataSensor(CoordinatorEntity, SensorEntity):
 
 
 class _FixedRawDataSensor(CoordinatorEntity, SensorEntity):
-    """Base class for fixed-name sensors reading a single value from coordinator.data['raw']."""
+    """Base class for single-purpose raw-data sensors with identity baked into the class.
 
+    Use this when the sensor class represents exactly one thing, so the name, unique ID,
+    and raw-data key are fixed and declared as class attributes rather than passed at
+    instantiation. Override _transform() to apply scaling or value correction without
+    repeating the online/raw guard logic.
+    """
+
+    # These should be overridden in the base classes.
     _name_value: str
     _unique_value: str
     _key_value: str
@@ -1416,6 +1429,11 @@ class _ReportSensor(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _round: bool = False
 
+    # These should be overridden in the base classes.
+    _name_value: str
+    _unique_value: str
+    _key_value: str
+
     def __init__(self, coordinator, name, deviceID):
         """Initialize the report sensor entity."""
         super().__init__(coordinator=coordinator)
@@ -1457,60 +1475,26 @@ class FoxESSEnergyBatCharge(_ReportSensor):
     _key_value = "chargeEnergyToTal"
 
 
-class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
+class FoxESSMaxBatChargeCurrent(_FixedRawDataSensor):
     """Sensor entity for maximum battery charge current in amperes."""
 
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-
-    def __init__(self, coordinator, name, deviceID):
-        """Initialize the max battery charge current sensor entity."""
-        super().__init__(coordinator=coordinator)
-        _LOGGER.debug("Initiating Entity - Max Bat Charge Current")
-        self._attr_name = name + " - Max Bat Charge Current"
-        self._attr_unique_id = deviceID + "max-bat-charge-charge"
-
-    @property
-    def native_value(self) -> str | None:
-        """Return maximum battery charge current in amperes from raw data."""
-        if "maxChargeCurrent" not in self.coordinator.data["raw"]:
-            _LOGGER.debug("report maxChargeCurrent None")
-        else:
-            if self.coordinator.data["raw"]["maxChargeCurrent"] == 0:
-                charge = 0
-            else:
-                charge = self.coordinator.data["raw"]["maxChargeCurrent"]
-            return charge
-        return None
+    _name_value = "Max Bat Charge Current"
+    _unique_value = "max-bat-charge-charge"
+    _key_value = "maxChargeCurrent"
 
 
-class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
+class FoxESSMaxBatDischargeCurrent(_FixedRawDataSensor):
     """Sensor entity for maximum battery discharge current in amperes."""
 
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-
-    def __init__(self, coordinator, name, deviceID):
-        """Initialize the max battery discharge current sensor entity."""
-        super().__init__(coordinator=coordinator)
-        _LOGGER.debug("Initiating Entity - Max Bat Discharge Current")
-        self._attr_name = name + " - Max Bat Discharge Current"
-        self._attr_unique_id = deviceID + "max-bat-discharge-charge"
-
-    @property
-    def native_value(self) -> str | None:
-        """Return maximum battery discharge current in amperes from raw data."""
-        if "maxDischargeCurrent" not in self.coordinator.data["raw"]:
-            _LOGGER.debug("report maxDischargeCurrent None")
-        else:
-            if self.coordinator.data["raw"]["maxDischargeCurrent"] == 0:
-                charge = 0
-            else:
-                charge = self.coordinator.data["raw"]["maxDischargeCurrent"]
-            return charge
-        return None
+    _name_value = "Max Bat Discharge Current"
+    _unique_value = "max-bat-discharge-charge"
+    _key_value = "maxDischargeCurrent"
 
 
 class FoxESSEnergyBatDischarge(_ReportSensor):
