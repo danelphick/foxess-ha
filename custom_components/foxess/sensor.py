@@ -18,6 +18,8 @@ import time
 from dateutil import parser
 import voluptuous as vol
 
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.components.rest.data import RestData
 from homeassistant.components.sensor import (
     PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
@@ -29,6 +31,7 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_PASSWORD,
     CONF_USERNAME,
+    EVENT_HOMEASSISTANT_STARTED,
     PERCENTAGE,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
@@ -56,6 +59,10 @@ _ENDPOINT_OA_DEVICE_DETAIL_V1 = "/op/v1/device/detail"
 _ENDPOINT_OA_DEVICE_VARIABLES = "/op/v0/device/real/query"
 _ENDPOINT_OA_DEVICE_VARIABLES_V1 = "/op/v1/device/real/query"
 _ENDPOINT_OA_DAILY_GENERATION = "/op/v0/device/generation?sn="
+_ENDPOINT_OA_SCHEDULER_FLAG = "/op/v0/device/scheduler/get/flag"
+_ENDPOINT_OA_SCHEDULER_SEGMENTS = "/op/v1/device/scheduler/get"
+_CARD_STATIC_BASE = "/foxess_ha_static"
+_CARD_STATIC_URL = f"{_CARD_STATIC_BASE}/scheduler_card.js"
 
 METHOD_POST = "POST"
 METHOD_GET = "GET"
@@ -207,6 +214,10 @@ async def _fetch_live_data(
     if tslice == 0:
         # read in battery settings if fitted at startup, then every 60 mins
         await getOABatterySettings(hass, allData, devicesn, apiKey)
+        await asyncio.sleep(1)  # OpenAPI demand
+        await getSchedulerFlag(hass, allData, devicesn, apiKey)
+        await asyncio.sleep(1)  # OpenAPI demand
+        await getSchedulerSegments(hass, allData, devicesn, apiKey)
         await asyncio.sleep(1)  # OpenAPI demand
     # main real time data fetch, followed by reports
     geterror = await getRaw(
@@ -365,6 +376,23 @@ async def _async_update_data(
     return allData
 
 
+async def _register_lovelace_resource(hass) -> None:
+    """Add the scheduler card JS as a Lovelace resource if not already registered."""
+    lovelace_data = hass.data.get(LOVELACE_DATA)
+    if lovelace_data is None:
+        return
+    resources = lovelace_data.resources
+    if not hasattr(resources, "async_create_item"):
+        return  # YAML mode — resources are read-only
+    if any(r.get("url") == _CARD_STATIC_URL for r in resources.async_items()):
+        return
+    try:
+        await resources.async_create_item({"res_type": "module", "url": _CARD_STATIC_URL})
+        _LOGGER.debug("Registered FoxESS scheduler card as Lovelace resource")
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Could not auto-register Lovelace resource: %s", err)
+
+
 async def _async_setup_foxess(hass, config, async_add_entities, config_entry=None):
     """Shared setup logic for platform and config entry."""
     name = config.get(CONF_NAME)
@@ -407,6 +435,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
         "raw": {},
         "battery": {},
         "addressbook": {},
+        "scheduler": {"enabled": None, "groups": []},
         "online": False,
     }
     allData["addressbook"]["hasBattery"] = False  # assume no battery is fitted for now
@@ -575,6 +604,8 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             make(FoxESSMaxBatChargeCurrent),
             make(FoxESSMaxBatDischargeCurrent),
             make(FoxESSRunningState, "Running State", "running-state", "runningState"),
+            make(FoxESSSchedulerEnabled),
+            *[make(FoxESSSchedulerSegment, i) for i in range(1, 9)],
         ]
     )
 
@@ -595,6 +626,27 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                 )
             ]
         )
+
+    _registered_key = "foxess_card_static_registered"
+    if not hass.data.get(_registered_key):
+        await hass.http.async_register_static_paths(
+            [
+                StaticPathConfig(
+                    _CARD_STATIC_BASE,
+                    hass.config.path("custom_components/foxess"),
+                    cache_headers=False,
+                )
+            ]
+        )
+        hass.data[_registered_key] = True
+
+    if hass.is_running:
+        await _register_lovelace_resource(hass)
+    else:
+        async def _on_ha_start(_event) -> None:
+            await _register_lovelace_resource(hass)
+
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_ha_start)
 
     return None
 
@@ -845,6 +897,100 @@ async def getOABatterySettings(hass, allData, devicesn, apiKey):
     allData["battery"]["minSoc"] = None
     allData["battery"]["minSocOnGrid"] = None
     return FetchResult.OK
+
+
+async def getSchedulerFlag(hass, allData, devicesn, apiKey):
+    """Fetch scheduler enable/disable state from FoxESS OpenAPI and populate allData['scheduler']['enabled']."""
+    await waitforAPI()
+
+    path = _ENDPOINT_OA_SCHEDULER_FLAG
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+
+    _LOGGER.debug("getSchedulerFlag fetch %s", path)
+
+    restSchedulerFlag = RestData(
+        hass,
+        METHOD_POST,
+        _ENDPOINT_OA_DOMAIN + path,
+        DEFAULT_ENCODING,
+        None,
+        headerData,
+        None,
+        '{"deviceSN":"' + devicesn + '"}',
+        DEFAULT_VERIFY_SSL,
+        SSLCipherList.PYTHON_DEFAULT,
+        DEFAULT_TIMEOUT,
+    )
+    await restSchedulerFlag.async_update()
+
+    if restSchedulerFlag.data is None or restSchedulerFlag.data == "":
+        _LOGGER.debug("Unable to get scheduler flag from FoxESS Cloud")
+        return FetchResult.ERROR
+
+    response = json.loads(restSchedulerFlag.data)
+    if response["errno"] == 0 and (
+        response["msg"] == "success" or response["msg"] == "Operation successful"
+    ):
+        _LOGGER.debug("Scheduler flag response: %s", response["result"])
+        allData["scheduler"]["enabled"] = bool(response["result"].get("enable", 0))
+        return FetchResult.OK
+
+    _LOGGER.debug("Scheduler flag bad response: %s", response)
+    return (
+        FetchResult.AUTH_FAILED
+        if response["errno"] in _AUTH_ERRNO
+        else FetchResult.ERROR
+    )
+
+
+async def getSchedulerSegments(hass, allData, devicesn, apiKey):
+    """Fetch scheduler time segment groups from FoxESS OpenAPI and populate allData['scheduler']['groups']."""
+    await waitforAPI()
+
+    path = _ENDPOINT_OA_SCHEDULER_SEGMENTS
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+
+    _LOGGER.debug("getSchedulerSegments fetch %s", path)
+
+    restSchedulerSegments = RestData(
+        hass,
+        METHOD_POST,
+        _ENDPOINT_OA_DOMAIN + path,
+        DEFAULT_ENCODING,
+        None,
+        headerData,
+        None,
+        '{"deviceSN":"' + devicesn + '"}',
+        DEFAULT_VERIFY_SSL,
+        SSLCipherList.PYTHON_DEFAULT,
+        DEFAULT_TIMEOUT,
+    )
+    await restSchedulerSegments.async_update()
+
+    if restSchedulerSegments.data is None or restSchedulerSegments.data == "":
+        _LOGGER.debug("Unable to get scheduler segments from FoxESS Cloud")
+        return FetchResult.ERROR
+
+    response = json.loads(restSchedulerSegments.data)
+    if response["errno"] == 0 and (
+        response["msg"] == "success" or response["msg"] == "Operation successful"
+    ):
+        result = response["result"]
+        if result is None:
+            _LOGGER.debug(
+                "Scheduler segments returned null — no cloud-side groups configured"
+            )
+            allData["scheduler"]["groups"] = []
+        else:
+            allData["scheduler"]["groups"] = result.get("groups", [])
+        return FetchResult.OK
+
+    _LOGGER.debug("Scheduler segments bad response: %s", response)
+    return (
+        FetchResult.AUTH_FAILED
+        if response["errno"] in _AUTH_ERRNO
+        else FetchResult.ERROR
+    )
 
 
 async def getReport(hass, allData, apiKey, devicesn):
@@ -1729,6 +1875,74 @@ class FoxESSBatMinSoConGrid(_BatterySettingsSensor):
     _name_value = "Bat minSocOnGrid"
     _unique_value = "bat-minSocOnGrid"
     _key_value = "minSocOnGrid"
+
+
+class FoxESSSchedulerEnabled(CoordinatorEntity, SensorEntity):
+    """Sensor entity showing whether the FoxESS scheduler is enabled or disabled."""
+
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(self, coordinator, name, deviceID):
+        """Initialize the scheduler enabled sensor entity."""
+        super().__init__(coordinator=coordinator)
+        _LOGGER.debug("Initiating Entity - Scheduler")
+        self._attr_name = f"{name} - Scheduler"
+        self._attr_unique_id = f"{deviceID}scheduler-enabled"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return 'enabled' or 'disabled' based on scheduler flag, or None if not yet fetched."""
+        enabled = self.coordinator.data["scheduler"]["enabled"]
+        if enabled is None:
+            return None
+        return "enabled" if enabled else "disabled"
+
+
+class FoxESSSchedulerSegment(CoordinatorEntity, SensorEntity):
+    """Sensor entity for a single FoxESS scheduler time segment slot."""
+
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(self, coordinator, name, deviceID, segment_index: int):
+        """Initialize the scheduler segment sensor entity."""
+        super().__init__(coordinator=coordinator)
+        self._segment_index = segment_index
+        _LOGGER.debug("Initiating Entity - Scheduler Slot %s", segment_index)
+        self._attr_name = f"{name} - Scheduler Slot {segment_index}"
+        self._attr_unique_id = f"{deviceID}scheduler-slot-{segment_index}"
+
+    def _get_group(self) -> dict | None:
+        """Return the group dict for this slot index, or None if it doesn't exist."""
+        groups = self.coordinator.data["scheduler"]["groups"]
+        idx = self._segment_index - 1
+        return groups[idx] if idx < len(groups) else None
+
+    @property
+    def native_value(self) -> str | None:
+        """Return work mode if slot is enabled, 'disabled' if slot exists but is off, None if slot absent."""
+        group = self._get_group()
+        if group is None:
+            return None
+        return group.get("workMode", "unknown") if group.get("enable") else "disabled"
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """Return start/end times and power settings as attributes."""
+        group = self._get_group()
+        if group is None:
+            return None
+        start_h = group.get("startHour", 0)
+        start_m = group.get("startMinute", 0)
+        end_h = group.get("endHour", 0)
+        end_m = group.get("endMinute", 0)
+        return {
+            "enabled": bool(group.get("enable")),
+            "start": f"{start_h:02d}:{start_m:02d}",
+            "end": f"{end_h:02d}:{end_m:02d}",
+            "min_soc_on_grid": group.get("minSocOnGrid"),
+            "fd_soc": group.get("fdSoc"),
+            "fd_pwr_w": group.get("fdPwr"),
+        }
 
 
 class FoxESSTemp(_RawDataSensor):
