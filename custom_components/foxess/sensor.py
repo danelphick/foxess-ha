@@ -1919,11 +1919,11 @@ class FoxESSSchedulerSegment(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
-        """Return work mode if slot is enabled, 'disabled' if slot exists but is off, None if slot absent."""
+        """Return work mode if slot exists or None if slot absent."""
         group = self._get_group()
         if group is None:
             return None
-        return group.get("workMode", "unknown") if group.get("enable") else "disabled"
+        return group.get("workMode", "unknown")
 
     @property
     def extra_state_attributes(self) -> dict | None:
