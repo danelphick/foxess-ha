@@ -14,6 +14,8 @@ class FoxESSSchedulerCard extends HTMLElement {
     this._editGroups = null;
     this._deviceSN = null;
     this._drag = null;
+    this._zoom = 1.0;
+    this._tlScrollLeft = 0;
   }
 
   set hass(hass) {
@@ -199,6 +201,8 @@ class FoxESSSchedulerCard extends HTMLElement {
   // ── Modal open ────────────────────────────────────────────────────────────
 
   _openEditModal(slotData) {
+    this._zoom = 1.0;
+    this._tlScrollLeft = 0;
     this._editGroups = slotData.map(s => ({
       startMins: s.startMins,
       endMins: s.endMins,
@@ -216,6 +220,55 @@ class FoxESSSchedulerCard extends HTMLElement {
     }
     this._renderModal();
     this._dialog.showModal();
+  }
+
+  // ── Zoom helpers ──────────────────────────────────────────────────────────
+
+  _getHourStep(zoom) {
+    return zoom >= 6 ? 1 : zoom >= 3 ? 2 : zoom >= 1.5 ? 3 : 6;
+  }
+
+  _makeLabelHtml(zoom) {
+    const hourStep = this._getHourStep(zoom);
+    const items = [];
+    for (let h = 0; h <= 24; h += hourStep) {
+      const pct = (h / 24 * 100).toFixed(3);
+      const xform = h === 0 ? '' : h === 24 ? 'transform:translateX(-100%)' : 'transform:translateX(-50%)';
+      items.push(`<span style="position:absolute;left:${pct}%;white-space:nowrap;${xform}">${String(h).padStart(2, '0')}:00</span>`);
+    }
+    return items.join('');
+  }
+
+  _updateTlLabels() {
+    const labelsInner = this._dialog?.querySelector('.tl-labels-inner');
+    if (labelsInner) labelsInner.innerHTML = this._makeLabelHtml(this._zoom);
+  }
+
+  _applyZoom(factor, focalClientX, tlEl) {
+    const rect = tlEl.getBoundingClientRect();
+    const oldEffW = rect.width * this._zoom;
+    const focalOff = focalClientX - rect.left + tlEl.scrollLeft;
+    const oldStep = this._getHourStep(this._zoom);
+
+    this._zoom = Math.max(1, Math.min(8, this._zoom * factor));
+
+    const innerEl = tlEl.querySelector('.edit-tl-inner');
+    if (innerEl) innerEl.style.width = `${this._zoom * 100}%`;
+
+    const labelsOuter = this._dialog?.querySelector('.tl-labels-outer');
+    const labelsInner = labelsOuter?.querySelector('.tl-labels-inner');
+    if (labelsInner) labelsInner.style.width = `${this._zoom * 100}%`;
+
+    const newEffW = rect.width * this._zoom;
+    const newScroll = Math.max(0, Math.min(
+      newEffW - rect.width,
+      (focalOff / oldEffW) * newEffW - (focalClientX - rect.left)
+    ));
+    tlEl.scrollLeft = newScroll;
+    this._tlScrollLeft = newScroll;
+    if (labelsOuter) labelsOuter.scrollLeft = newScroll;
+
+    if (this._getHourStep(this._zoom) !== oldStep) this._updateTlLabels();
   }
 
   // ── Modal render ──────────────────────────────────────────────────────────
@@ -286,17 +339,33 @@ class FoxESSSchedulerCard extends HTMLElement {
         .edit-tl {
           position: relative; height: 32px;
           background: var(--divider-color, #e0e0e0);
-          border-radius: 5px; margin-bottom: 4px;
-          user-select: none; cursor: crosshair; overflow: visible;
+          border-radius: 5px; margin-bottom: 0;
+          user-select: none; cursor: crosshair;
+          overflow: hidden;
+          touch-action: none;
+          scrollbar-width: none;
+        }
+        .edit-tl::-webkit-scrollbar { display: none; }
+        .edit-tl-inner { position: relative; height: 100%; min-width: 100%; }
+        .tl-labels-outer {
+          overflow: hidden; scrollbar-width: none;
+          height: 20px; margin-bottom: 6px;
+        }
+        .tl-labels-outer::-webkit-scrollbar { display: none; }
+        .tl-labels-inner {
+          position: relative; height: 100%; min-width: 100%;
+          font-size: .65em; color: var(--secondary-text-color);
         }
         .seg-group { position: absolute; height: 100%; overflow: visible; pointer-events: none; }
         .edit-seg {
           position: absolute; inset: 0 12px; border-radius: 3px;
           box-sizing: border-box; cursor: grab; overflow: hidden;
           opacity: .75; box-shadow: inset 0 0 0 1px rgba(255,255,255,.4);
-          pointer-events: auto;
+          pointer-events: auto; touch-action: none;
         }
         .dlg-inner.seg-dragging, .dlg-inner.seg-dragging * { cursor: grabbing !important; }
+        .dlg-inner.tl-panning, .dlg-inner.tl-panning * { cursor: grabbing !important; }
+        .tl-labels-outer { cursor: grab; }
         .hatch-overlay {
           position: absolute; inset: 1px; pointer-events: none;
           background-image: repeating-linear-gradient(45deg,rgba(0,0,0,.18) 0,rgba(0,0,0,.18) 2px,transparent 2px,transparent 8px),
@@ -307,7 +376,7 @@ class FoxESSSchedulerCard extends HTMLElement {
           position: absolute; top: 0; width: 10px; height: 100%;
           cursor: col-resize; background: rgba(255,255,255,.4); z-index: 2;
           border-radius: 3px; transition: background .1s;
-          display: none; pointer-events: auto;
+          display: none; pointer-events: auto; touch-action: none;
         }
         .edge-handle:hover { background: rgba(255,255,255,.75); }
         .edge-handle.h-visible { display: block; }
@@ -320,7 +389,6 @@ class FoxESSSchedulerCard extends HTMLElement {
         .edge-handle::before { left: 3px; }
         .edge-handle::after  { left: 6px; }
         .edit-seg.seg-hover { opacity:1; outline: 2px solid rgba(255,255,255,.6); box-shadow: 0 1px 8px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.4); z-index: 1; }
-        .tl-labels { display:flex; justify-content:space-between; font-size:.65em; color:var(--secondary-text-color); margin-bottom:10px; padding:0 1px; }
         .table-wrap { overflow-x: auto; }
         .modal-table { width:100%; border-collapse:collapse; font-size:.82em; }
         .modal-table th { padding:3px 5px; text-align:left; color:var(--secondary-text-color,#888); font-weight:500; border-bottom:1px solid var(--divider-color,#e0e0e0); white-space:nowrap; }
@@ -371,9 +439,15 @@ class FoxESSSchedulerCard extends HTMLElement {
           <span class="dlg-title">Edit Schedule</span>
           <button class="close-btn" aria-label="Close">&#x2715;</button>
         </div>
-        <div class="edit-tl">${segHtml}</div>
-        <div class="tl-labels">
-          <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+        <div class="edit-tl">
+          <div class="edit-tl-inner" style="width:${this._zoom * 100}%;min-width:100%">
+            ${segHtml}
+          </div>
+        </div>
+        <div class="tl-labels-outer">
+          <div class="tl-labels-inner" style="width:${this._zoom * 100}%;min-width:100%">
+            ${this._makeLabelHtml(this._zoom)}
+          </div>
         </div>
         <div class="table-wrap">
           <table class="modal-table">
@@ -395,6 +469,14 @@ class FoxESSSchedulerCard extends HTMLElement {
       </div>`;
 
     this._attachModalListeners();
+
+    // Restore scroll position after re-render
+    const tl = this._dialog.querySelector('.edit-tl');
+    const labelsOuter = this._dialog.querySelector('.tl-labels-outer');
+    if (tl && this._tlScrollLeft > 0) {
+      tl.scrollLeft = this._tlScrollLeft;
+      if (labelsOuter) labelsOuter.scrollLeft = this._tlScrollLeft;
+    }
   }
 
   _attachModalListeners() {
@@ -405,6 +487,8 @@ class FoxESSSchedulerCard extends HTMLElement {
     dlg.querySelector('.save-btn').addEventListener('click', () => this._saveSchedule());
 
     let hoverIdx = null;
+    let bgTouchState = null;
+    let pinchState = null;
 
     const showGroup = idx => {
       if (hoverIdx !== null && hoverIdx !== idx) hideGroup(hoverIdx);
@@ -438,10 +522,69 @@ class FoxESSSchedulerCard extends HTMLElement {
       });
       el.addEventListener('pointerdown', e => this._onSegBodyDown(e));
       el.addEventListener('dblclick', e => this._onSegDblClick(e));
+      el.addEventListener('contextmenu', e => e.preventDefault());
     });
 
     const tl = dlg.querySelector('.edit-tl');
+
+    // Background touch: long-press to create segment, swipe to pan when zoomed
+    const clearBgTouch = pointerId => {
+      if (bgTouchState?.pointerId === pointerId) {
+        clearTimeout(bgTouchState.lpTimer);
+        bgTouchState = null;
+        dlg.querySelector('.dlg-inner')?.classList.remove('tl-panning');
+      }
+    };
+
+    tl.addEventListener('pointerdown', e => {
+      if (this._drag || bgTouchState) return;
+      if (e.target.closest('.edit-seg, .edge-handle')) return;
+      if (e.pointerType === 'mouse') {
+        e.preventDefault();
+        bgTouchState = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startScrollLeft: tl.scrollLeft,
+          moved: false,
+          lpTimer: null,
+        };
+        tl.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (e.pointerType !== 'touch') return;
+      const capturedClientX = e.clientX;
+      bgTouchState = {
+        pointerId: e.pointerId,
+        startX: capturedClientX,
+        startScrollLeft: tl.scrollLeft,
+        moved: false,
+        lpTimer: setTimeout(() => {
+          bgTouchState = null;
+          this._createSegmentAt(tl, capturedClientX);
+        }, 500),
+      };
+      tl.setPointerCapture(e.pointerId);
+    });
+
     tl.addEventListener('pointermove', e => {
+      // Handle background pan (touch or mouse)
+      if (bgTouchState && e.pointerId === bgTouchState.pointerId) {
+        const dx = e.clientX - bgTouchState.startX;
+        if (!bgTouchState.moved && Math.abs(dx) > 8) {
+          clearTimeout(bgTouchState.lpTimer);
+          bgTouchState.moved = true;
+          dlg.querySelector('.dlg-inner')?.classList.add('tl-panning');
+        }
+        if (bgTouchState.moved && this._zoom > 1) {
+          tl.scrollLeft = Math.max(0, bgTouchState.startScrollLeft - dx);
+          this._tlScrollLeft = tl.scrollLeft;
+          const labelsOuter = this._dialog?.querySelector('.tl-labels-outer');
+          if (labelsOuter) labelsOuter.scrollLeft = tl.scrollLeft;
+        }
+        return;
+      }
+
+      // Existing hover management
       if (hoverIdx === null || this._drag) return;
       const grp = dlg.querySelector(`.seg-group[data-idx="${hoverIdx}"]`);
       if (!grp) return;
@@ -453,6 +596,92 @@ class FoxESSSchedulerCard extends HTMLElement {
         if (seg) showGroup(seg.dataset.idx);
       }
     });
+
+    tl.addEventListener('pointerup',     e => clearBgTouch(e.pointerId));
+    tl.addEventListener('pointercancel', e => clearBgTouch(e.pointerId));
+
+    tl.addEventListener('scroll', () => {
+      this._tlScrollLeft = tl.scrollLeft;
+      const labelsOuter = this._dialog?.querySelector('.tl-labels-outer');
+      if (labelsOuter) labelsOuter.scrollLeft = tl.scrollLeft;
+    });
+
+    // Mouse pan on labels area
+    const labelsOuter = dlg.querySelector('.tl-labels-outer');
+    if (labelsOuter) {
+      let labelsPanState = null;
+      labelsOuter.addEventListener('pointerdown', e => {
+        if (e.pointerType !== 'mouse' || labelsPanState) return;
+        e.preventDefault();
+        labelsPanState = { pointerId: e.pointerId, startX: e.clientX, startScrollLeft: tl.scrollLeft, moved: false };
+        labelsOuter.setPointerCapture(e.pointerId);
+      });
+      labelsOuter.addEventListener('pointermove', e => {
+        if (!labelsPanState || e.pointerId !== labelsPanState.pointerId) return;
+        const dx = e.clientX - labelsPanState.startX;
+        if (!labelsPanState.moved && Math.abs(dx) > 4) {
+          labelsPanState.moved = true;
+          dlg.querySelector('.dlg-inner')?.classList.add('tl-panning');
+        }
+        if (labelsPanState.moved && this._zoom > 1) {
+          tl.scrollLeft = Math.max(0, labelsPanState.startScrollLeft - dx);
+          this._tlScrollLeft = tl.scrollLeft;
+          labelsOuter.scrollLeft = tl.scrollLeft;
+        }
+      });
+      const clearLabels = e => {
+        if (labelsPanState?.pointerId === e.pointerId) {
+          labelsPanState = null;
+          dlg.querySelector('.dlg-inner')?.classList.remove('tl-panning');
+        }
+      };
+      labelsOuter.addEventListener('pointerup',     clearLabels);
+      labelsOuter.addEventListener('pointercancel', clearLabels);
+    }
+
+    // Mouse wheel zoom
+    tl.addEventListener('wheel', e => {
+      e.preventDefault();
+      this._applyZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, tl);
+    }, { passive: false });
+
+    // Pinch zoom via touch events
+    const pinchData = touches => {
+      const t1 = touches[0], t2 = touches[1];
+      return {
+        dist: Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY),
+        midX: (t1.clientX + t2.clientX) / 2,
+      };
+    };
+
+    tl.addEventListener('touchstart', e => {
+      if (e.touches.length !== 2) return;
+      e.preventDefault();
+      if (this._drag) {
+        clearTimeout(this._drag.lpTimer);
+        this._drag.el?.removeEventListener('pointermove', this._onSegBodyMove);
+        this._drag.el?.removeEventListener('pointerup', this._onSegBodyUp);
+        this._dialog.querySelector('.dlg-inner')?.classList.remove('seg-dragging');
+        this._drag = null;
+      }
+      if (bgTouchState) { clearTimeout(bgTouchState.lpTimer); bgTouchState = null; }
+      pinchState = pinchData(e.touches);
+    }, { passive: false });
+
+    tl.addEventListener('touchmove', e => {
+      if (!pinchState || e.touches.length < 2) return;
+      e.preventDefault();
+      const cur = pinchData(e.touches);
+      this._applyZoom(cur.dist / pinchState.dist, cur.midX, tl);
+      pinchState = cur;
+    }, { passive: false });
+
+    tl.addEventListener('touchend', e => {
+      if (e.touches.length < 2) pinchState = null;
+    });
+
+    tl.addEventListener('contextmenu', e => e.preventDefault());
+
     const withinActiveGroup = (clientX, clientY) => {
       if (hoverIdx === null) return false;
       const grp = dlg.querySelector(`.seg-group[data-idx="${hoverIdx}"]`);
@@ -461,6 +690,7 @@ class FoxESSSchedulerCard extends HTMLElement {
       return clientX >= r.left && clientX <= r.right &&
              (clientY === undefined || (clientY >= r.top && clientY <= r.bottom));
     };
+
     tl.addEventListener('mouseleave', e => {
       if (hoverIdx === null || this._drag) return;
       // Don't hide if cursor is still within the active seg-group's bounds
@@ -580,7 +810,7 @@ class FoxESSSchedulerCard extends HTMLElement {
           : groups[adjacentIdx].endMins - 10)
       : (edge === 'left' ? 0 : 1440);
 
-    this._drag = { groupIdx, edge, tlLeft: tlRect.left, tlWidth: tlRect.width, adjacentIdx, noShiftBound, shiftBound };
+    this._drag = { groupIdx, edge, adjacentIdx, noShiftBound, shiftBound };
     handle.setPointerCapture(e.pointerId);
     handle.addEventListener('pointermove', this._onEdgeDragMove);
     handle.addEventListener('pointerup', this._onEdgeDragEnd);
@@ -588,11 +818,13 @@ class FoxESSSchedulerCard extends HTMLElement {
 
   _onEdgeDragMove = (e) => {
     if (!this._drag) return;
-    const { groupIdx, edge, tlLeft, tlWidth, adjacentIdx, noShiftBound, shiftBound } = this._drag;
+    const { groupIdx, edge, adjacentIdx, noShiftBound, shiftBound } = this._drag;
     const groups = this._editGroups;
     const g = groups[groupIdx];
 
-    const rawMins = Math.round(((e.clientX - tlLeft) / tlWidth) * 1440 / 10) * 10;
+    const tl = this._dialog.querySelector('.edit-tl');
+    const tlRect = tl.getBoundingClientRect();
+    const rawMins = Math.round(((e.clientX - tlRect.left + tl.scrollLeft) / (tlRect.width * this._zoom)) * 1440 / 10) * 10;
     const useShift = e.shiftKey && adjacentIdx !== null;
     const bound = useShift ? shiftBound : noShiftBound;
 
@@ -632,10 +864,21 @@ class FoxESSSchedulerCard extends HTMLElement {
   // ── Segment body drag (move) ──────────────────────────────────────────────
 
   _onSegBodyDown(e) {
-    if (e.button !== 0 || this._drag) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (this._drag) return;
     e.stopPropagation();
     const el = e.currentTarget;
-    this._drag = { type: 'move-pending', groupIdx: parseInt(el.dataset.idx), startX: e.clientX, el };
+    const groupIdx = parseInt(el.dataset.idx);
+    const pointerId = e.pointerId;
+    const lpTimer = setTimeout(() => {
+      if (this._drag?.type !== 'move-pending') return;
+      el.removeEventListener('pointermove', this._onSegBodyMove);
+      el.removeEventListener('pointerup', this._onSegBodyUp);
+      try { el.releasePointerCapture(pointerId); } catch (_) {}
+      this._drag = null;
+      this._showModePicker(el, groupIdx);
+    }, 500);
+    this._drag = { type: 'move-pending', groupIdx, startX: e.clientX, el, lpTimer };
     el.setPointerCapture(e.pointerId);
     el.addEventListener('pointermove', this._onSegBodyMove);
     el.addEventListener('pointerup', this._onSegBodyUp);
@@ -645,18 +888,21 @@ class FoxESSSchedulerCard extends HTMLElement {
     if (!this._drag) return;
     if (this._drag.type === 'move-pending') {
       if (Math.abs(e.clientX - this._drag.startX) < 5) return;
+      clearTimeout(this._drag.lpTimer);
       this._activateSegMoveDrag(e);
       // fall through to process the first move frame
     }
     if (this._drag.type !== 'move') return;
 
-    const { groupIdx, duration, mouseOffsetMins, tlLeft, tlWidth,
+    const { groupIdx, duration, mouseOffsetMins,
             leftAdjIdx, rightAdjIdx,
             noShiftMinStart, noShiftMaxStart, shiftMinStart, shiftMaxStart } = this._drag;
     const groups = this._editGroups;
     const g = groups[groupIdx];
 
-    const rawMins = ((e.clientX - tlLeft) / tlWidth) * 1440;
+    const tl = this._dialog.querySelector('.edit-tl');
+    const tlRect = tl.getBoundingClientRect();
+    const rawMins = ((e.clientX - tlRect.left + tl.scrollLeft) / (tlRect.width * this._zoom)) * 1440;
     const newStart = Math.max(
       e.shiftKey ? shiftMinStart : noShiftMinStart,
       Math.min(
@@ -687,6 +933,7 @@ class FoxESSSchedulerCard extends HTMLElement {
 
   _onSegBodyUp = (e) => {
     if (!this._drag) return;
+    clearTimeout(this._drag.lpTimer);
     const { el } = this._drag;
     el.releasePointerCapture(e.pointerId);
     el.removeEventListener('pointermove', this._onSegBodyMove);
@@ -703,10 +950,11 @@ class FoxESSSchedulerCard extends HTMLElement {
     const g = groups[groupIdx];
     const tl = this._dialog.querySelector('.edit-tl');
     const tlRect = tl.getBoundingClientRect();
+    const effW = tlRect.width * this._zoom;
     const duration = g.endMins - g.startMins;
 
-    // Offset: where in the segment the pointer was at mousedown (unrounded)
-    const mouseOffsetMins = ((startX - tlRect.left) / tlRect.width) * 1440 - g.startMins;
+    // Offset: where in the segment the pointer was at pointerdown (unrounded)
+    const mouseOffsetMins = ((startX - tlRect.left + tl.scrollLeft) / effW) * 1440 - g.startMins;
 
     let leftAdjIdx = null, rightAdjIdx = null;
     for (let i = 0; i < groups.length; i++) {
@@ -730,7 +978,6 @@ class FoxESSSchedulerCard extends HTMLElement {
     Object.assign(this._drag, {
       type: 'move',
       duration, mouseOffsetMins,
-      tlLeft: tlRect.left, tlWidth: tlRect.width,
       leftAdjIdx, rightAdjIdx,
       noShiftMinStart, noShiftMaxStart,
       shiftMinStart, shiftMaxStart,
@@ -756,13 +1003,9 @@ class FoxESSSchedulerCard extends HTMLElement {
     if (ec) ec.textContent = this._minsToStr(g.endMins);
   }
 
-  // ── Double-click: mode picker ─────────────────────────────────────────────
+  // ── Mode picker ───────────────────────────────────────────────────────────
 
-  _onSegDblClick(e) {
-    e.stopPropagation();
-    const segEl = e.currentTarget;
-    const groupIdx = parseInt(segEl.dataset.idx);
-
+  _showModePicker(segEl, groupIdx) {
     this._dialog.querySelector('.mode-picker')?.remove();
 
     const picker = document.createElement('div');
@@ -797,7 +1040,7 @@ class FoxESSSchedulerCard extends HTMLElement {
       this._renderModal();
     });
 
-    // Dismiss on click elsewhere
+    // Dismiss on click/tap elsewhere
     setTimeout(() => {
       const dismiss = ev => {
         if (!picker.contains(ev.target)) {
@@ -811,14 +1054,18 @@ class FoxESSSchedulerCard extends HTMLElement {
     }, 0);
   }
 
-  // ── Double-click: new group on empty space ─────────────────────────────────
+  _onSegDblClick(e) {
+    e.stopPropagation();
+    this._showModePicker(e.currentTarget, parseInt(e.currentTarget.dataset.idx));
+  }
 
-  _onTlDblClick(e) {
-    if (e.target !== e.currentTarget && e.target.closest?.('.edit-seg')) return;
+  // ── Create segment ────────────────────────────────────────────────────────
 
-    const tl = e.currentTarget;
+  _createSegmentAt(tl, clientX) {
     const tlRect = tl.getBoundingClientRect();
-    const clickMins = Math.round(((e.clientX - tlRect.left) / tlRect.width) * 1440 / 10) * 10;
+    const clickMins = Math.round(
+      ((clientX - tlRect.left + tl.scrollLeft) / (tlRect.width * this._zoom)) * 1440 / 10
+    ) * 10;
 
     const groups = this._editGroups;
     const prevEnd   = groups.reduce((mx, g) => g.endMins   <= clickMins ? Math.max(mx, g.endMins)   : mx, 0);
@@ -832,6 +1079,11 @@ class FoxESSSchedulerCard extends HTMLElement {
     groups.push({ startMins, endMins, enable: 1, workMode: 'SelfUse', minSocOnGrid: 10, fdSoc: 90, fdPwr: 0, maxSoc: 100 });
     groups.sort((a, b) => a.startMins - b.startMins);
     this._renderModal();
+  }
+
+  _onTlDblClick(e) {
+    if (e.target !== e.currentTarget && e.target.closest?.('.edit-seg')) return;
+    this._createSegmentAt(e.currentTarget, e.clientX);
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
