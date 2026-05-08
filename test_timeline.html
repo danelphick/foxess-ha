@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Timeline Hover Test</title>
+<style>
+  body { background: #1a1a2e; color: #eee; font-family: sans-serif; padding: 40px; }
+  #status { margin-bottom: 12px; font-size: .9em; color: #aaa; min-height: 1.4em; }
+  #container { background: #2a2a3e; border-radius: 10px; padding: 20px; max-width: 700px; }
+
+  .edit-tl {
+    position: relative; height: 32px;
+    background: #444;
+    border-radius: 5px; margin-bottom: 4px;
+    user-select: none; cursor: crosshair; overflow: visible;
+  }
+  .seg-group { position: absolute; height: 100%; overflow: visible; pointer-events: none; }
+  .edit-seg {
+    position: absolute; inset: 0 12px; border-radius: 3px;
+    box-sizing: border-box; cursor: default; overflow: hidden;
+    opacity: .75; box-shadow: inset 0 0 0 1px rgba(255,255,255,.4);
+    pointer-events: auto;
+  }
+  .hatch-overlay {
+    position: absolute; inset: 1px; pointer-events: none;
+    background-image: repeating-linear-gradient(45deg,rgba(0,0,0,.18) 0,rgba(0,0,0,.18) 2px,transparent 2px,transparent 8px),
+                      repeating-linear-gradient(135deg,rgba(0,0,0,.18) 0,rgba(0,0,0,.18) 2px,transparent 2px,transparent 8px);
+    background-attachment: fixed;
+  }
+  .edge-handle {
+    position: absolute; top: 0; width: 10px; height: 100%;
+    cursor: col-resize; background: rgba(255,255,255,.4); z-index: 2;
+    border-radius: 3px; transition: background .1s;
+    display: none; pointer-events: auto;
+  }
+  .edge-handle:hover { background: rgba(255,255,255,.75); }
+  .edge-handle.h-visible { display: block; }
+  .edge-handle.lh { left: 2px; transform: translateX(-2px); }
+  .edge-handle.rh { right: 2px; transform: translateX(2px); }
+  .edge-handle::before, .edge-handle::after {
+    content: ''; position: absolute; top: 20%; height: 60%;
+    width: 1px; border-radius: 1px; background: rgba(255,255,255,.7);
+  }
+  .edge-handle::before { left: 3px; }
+  .edge-handle::after  { left: 6px; }
+  .edit-seg.seg-hover {
+    opacity: 1; outline: 2px solid rgba(255,255,255,.6);
+    box-shadow: 0 1px 8px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.4);
+    z-index: 1;
+  }
+  .tl-labels { display:flex; justify-content:space-between; font-size:.65em; color:#888; margin-top:4px; }
+  .debug { margin-top: 20px; font-size: .8em; color: #888; }
+  .debug span { display: inline-block; margin-right: 16px; }
+</style>
+</head>
+<body>
+<div id="status">Move mouse over segments to test hover</div>
+<div id="container">
+  <div class="edit-tl" id="tl"></div>
+  <div class="tl-labels">
+    <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+  </div>
+</div>
+<div class="debug">
+  <span>hoverIdx: <b id="d-hover">null</b></span>
+  <span>mouseenter fired: <b id="d-enter">—</b></span>
+  <span>pointermove hide: <b id="d-pmove">—</b></span>
+</div>
+
+<script>
+const WORK_MODES = {
+  ForceCharge:    { label: 'Force Charge',    color: '#2196F3' },
+  ForceDischarge: { label: 'Force Discharge', color: '#FF5722' },
+  Feedin:         { label: 'Feed In',         color: '#4CAF50' },
+  SelfUse:        { label: 'Self Use',        color: '#9C27B0' },
+  Backup:         { label: 'Backup',          color: '#FF9800' },
+};
+
+// Sample segments matching the real schedule
+const groups = [
+  { startMins:    0, endMins:  330, workMode: 'ForceCharge',    enable: 1 }, // 00:00-05:30
+  { startMins:  330, endMins:  360, workMode: 'Backup',         enable: 0 }, // 05:30-06:00 (disabled)
+  { startMins:  960, endMins: 1080, workMode: 'Feedin',         enable: 1 }, // 16:00-18:00
+  { startMins: 1080, endMins: 1139, workMode: 'ForceDischarge', enable: 1 }, // 18:00-18:59
+  { startMins: 1140, endMins: 1410, workMode: 'SelfUse',        enable: 0 }, // 19:00-23:30 (disabled)
+  { startMins: 1410, endMins: 1439, workMode: 'ForceCharge',    enable: 1 }, // 23:30-23:59
+];
+
+const tl = document.getElementById('tl');
+let drag = null;
+
+// Build segment HTML
+const segHtml = groups.map((g, idx) => {
+  const cfg = WORK_MODES[g.workMode] ?? { color: '#9e9e9e' };
+  const l = (g.startMins / 1440 * 100).toFixed(3);
+  const w = ((g.endMins - g.startMins) / 1440 * 100).toFixed(3);
+  const hatchDiv = g.enable ? '' : '<div class="hatch-overlay"></div>';
+  return `<div class="seg-group" data-idx="${idx}" style="left:calc(${l}% - 12px);width:calc(${w}% + 24px)">
+    <div class="edit-seg" data-idx="${idx}" style="background-color:${cfg.color}">${hatchDiv}</div>
+    <div class="edge-handle lh" data-edge="left" data-idx="${idx}"></div>
+    <div class="edge-handle rh" data-edge="right" data-idx="${idx}"></div>
+  </div>`;
+}).join('');
+tl.innerHTML = segHtml;
+
+// Event logic (mirrors _attachModalListeners)
+let hoverIdx = null;
+
+const showGroup = idx => {
+  if (hoverIdx !== null && hoverIdx !== idx) hideGroup(hoverIdx);
+  hoverIdx = idx;
+  const grp = tl.querySelector(`.seg-group[data-idx="${idx}"]`);
+  if (grp) grp.style.zIndex = '1';
+  tl.querySelectorAll(`.edge-handle[data-idx="${idx}"]`).forEach(h => h.classList.add('h-visible'));
+  tl.querySelector(`.edit-seg[data-idx="${idx}"]`)?.classList.add('seg-hover');
+  document.getElementById('d-hover').textContent = idx;
+  document.getElementById('d-enter').textContent = idx + ' @ ' + new Date().toLocaleTimeString();
+  document.getElementById('status').textContent = `Hovering segment ${idx} (${groups[idx].workMode})`;
+};
+
+const hideGroup = idx => {
+  if (hoverIdx === idx) hoverIdx = null;
+  const grp = tl.querySelector(`.seg-group[data-idx="${idx}"]`);
+  if (grp) grp.style.zIndex = '';
+  tl.querySelectorAll(`.edge-handle[data-idx="${idx}"]`).forEach(h => h.classList.remove('h-visible'));
+  tl.querySelector(`.edit-seg[data-idx="${idx}"]`)?.classList.remove('seg-hover');
+  document.getElementById('d-hover').textContent = 'null';
+  document.getElementById('status').textContent = 'Move mouse over segments to test hover';
+};
+
+tl.querySelectorAll('.edit-seg').forEach(el => {
+  el.addEventListener('mouseenter', e => {
+    const newIdx = e.currentTarget.dataset.idx;
+    if (hoverIdx !== null && hoverIdx !== newIdx) {
+      const activeGrp = tl.querySelector(`.seg-group[data-idx="${hoverIdx}"]`);
+      if (activeGrp) {
+        const r = activeGrp.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right &&
+            e.clientY >= r.top && e.clientY <= r.bottom) return;
+      }
+    }
+    showGroup(newIdx);
+  });
+  el.addEventListener('dblclick', e => {
+    e.stopPropagation();
+    document.getElementById('status').textContent = `dblclick on segment ${e.currentTarget.dataset.idx} ✓ (correct)`;
+  });
+});
+
+tl.addEventListener('pointermove', e => {
+  if (hoverIdx === null || drag) return;
+  const grp = tl.querySelector(`.seg-group[data-idx="${hoverIdx}"]`);
+  if (!grp) return;
+  const r = grp.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+    document.getElementById('d-pmove').textContent = 'hide ' + hoverIdx + ' @ ' + new Date().toLocaleTimeString();
+    hideGroup(hoverIdx);
+    const seg = e.target.closest('.edit-seg');
+    if (seg) showGroup(seg.dataset.idx);
+  }
+});
+
+const withinActiveGroup = clientX => {
+  if (hoverIdx === null) return false;
+  const grp = tl.querySelector(`.seg-group[data-idx="${hoverIdx}"]`);
+  if (!grp) return false;
+  const r = grp.getBoundingClientRect();
+  return clientX >= r.left && clientX <= r.right;
+};
+
+tl.addEventListener('mouseleave', e => {
+  if (hoverIdx === null || drag) return;
+  if (withinActiveGroup(e.clientX)) return;
+  hideGroup(hoverIdx);
+});
+
+tl.addEventListener('dblclick', e => {
+  document.getElementById('status').textContent = 'dblclick on TIMELINE (no segment caught it) ✗';
+});
+
+tl.querySelectorAll('.edge-handle').forEach(el => {
+  el.addEventListener('mouseleave', e => {
+    if (hoverIdx === null || drag) return;
+    if (!withinActiveGroup(e.clientX)) hideGroup(hoverIdx);
+  });
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    document.getElementById('status').textContent = `Drag started on ${e.currentTarget.dataset.edge} handle of segment ${e.currentTarget.dataset.idx}`;
+    drag = true;
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    handle.addEventListener('pointerup', () => { drag = null; }, { once: true });
+  });
+  el.addEventListener('dblclick', e => e.stopPropagation());
+});
+</script>
+</body>
+</html>

@@ -13,11 +13,14 @@ import enum
 import hashlib
 import json
 import logging
+from pathlib import Path
 import time
 
+import aiohttp
 from dateutil import parser
 import voluptuous as vol
 
+from homeassistant.components import websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.components.rest.data import RestData
@@ -41,7 +44,9 @@ from homeassistant.const import (
     UnitOfReactivePower,
     UnitOfTemperature,
 )
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.icon import icon_for_battery_level
 from homeassistant.helpers.update_coordinator import (
@@ -61,8 +66,23 @@ _ENDPOINT_OA_DEVICE_VARIABLES_V1 = "/op/v1/device/real/query"
 _ENDPOINT_OA_DAILY_GENERATION = "/op/v0/device/generation?sn="
 _ENDPOINT_OA_SCHEDULER_FLAG = "/op/v0/device/scheduler/get/flag"
 _ENDPOINT_OA_SCHEDULER_SEGMENTS = "/op/v1/device/scheduler/get"
+_ENDPOINT_OA_SCHEDULER_ENABLE = "/op/v1/device/scheduler/enable"
+_FOXESS_DEVICES_KEY = "foxess_devices"
 _CARD_STATIC_BASE = "/foxess_ha_static"
-_CARD_STATIC_URL = f"{_CARD_STATIC_BASE}/scheduler_card.js"
+_CARD_JS_PREFIX = f"{_CARD_STATIC_BASE}/scheduler_card.js"
+
+
+# Computed once at import time (blocking I/O is safe outside the event loop).
+def _compute_card_url() -> str:
+    card_file = Path(__file__).parent / "scheduler_card.js"
+    try:
+        digest = hashlib.md5(card_file.read_bytes()).hexdigest()[:8]
+    except OSError:
+        digest = "0"
+    return f"{_CARD_JS_PREFIX}?v={digest}"
+
+
+_CARD_URL = _compute_card_url()
 
 METHOD_POST = "POST"
 METHOD_GET = "GET"
@@ -377,20 +397,63 @@ async def _async_update_data(
 
 
 async def _register_lovelace_resource(hass) -> None:
-    """Add the scheduler card JS as a Lovelace resource if not already registered."""
+    """Add or update the scheduler card JS as a Lovelace resource."""
     lovelace_data = hass.data.get(LOVELACE_DATA)
     if lovelace_data is None:
         return
     resources = lovelace_data.resources
     if not hasattr(resources, "async_create_item"):
         return  # YAML mode — resources are read-only
-    if any(r.get("url") == _CARD_STATIC_URL for r in resources.async_items()):
-        return
+
+    target_url = _CARD_URL
+    existing = next(
+        (
+            r
+            for r in resources.async_items()
+            if r.get("url", "").startswith(_CARD_JS_PREFIX)
+        ),
+        None,
+    )
     try:
-        await resources.async_create_item({"res_type": "module", "url": _CARD_STATIC_URL})
-        _LOGGER.debug("Registered FoxESS scheduler card as Lovelace resource")
+        if existing is None:
+            await resources.async_create_item({"res_type": "module", "url": target_url})
+            _LOGGER.debug("Registered FoxESS scheduler card as Lovelace resource")
+        elif existing.get("url") != target_url:
+            await resources.async_update_item(
+                existing["id"], {"res_type": "module", "url": target_url}
+            )
+            _LOGGER.debug("Updated FoxESS scheduler card Lovelace resource URL")
     except Exception as err:  # noqa: BLE001
-        _LOGGER.debug("Could not auto-register Lovelace resource: %s", err)
+        _LOGGER.debug("Could not register/update Lovelace resource: %s", err)
+
+
+@websocket_api.async_response
+async def _ws_save_schedule(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Handle foxess/save_schedule WebSocket command — write groups to FoxESS Cloud."""
+    device_sn = msg["deviceSN"]
+    devices = hass.data.get(_FOXESS_DEVICES_KEY, {})
+    if device_sn not in devices:
+        connection.send_error(
+            msg["id"], websocket_api.ERR_NOT_FOUND, f"No FoxESS device {device_sn}"
+        )
+        return
+    result, api_msg = await setSchedulerSegments(
+        hass, device_sn, devices[device_sn]["apiKey"], msg["groups"]
+    )
+    if result is FetchResult.OK:
+        connection.send_result(msg["id"], {"ok": True})
+    elif result is FetchResult.AUTH_FAILED:
+        connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, api_msg)
+    else:
+        connection.send_error(
+            msg["id"],
+            websocket_api.ERR_UNKNOWN_ERROR,
+            "FoxESS Cloud returned an error: " + api_msg,
+        )
 
 
 async def _async_setup_foxess(hass, config, async_add_entities, config_entry=None):
@@ -440,6 +503,8 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
     }
     allData["addressbook"]["hasBattery"] = False  # assume no battery is fitted for now
     allData["addressbook"]["status"] = "3"  # assume inverter is off-line for now
+
+    hass.data.setdefault(_FOXESS_DEVICES_KEY, {})[devicesn] = {"apiKey": apiKey}
 
     async def _update_callback() -> dict:
         return await _async_update_data(
@@ -605,7 +670,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             make(FoxESSMaxBatDischargeCurrent),
             make(FoxESSRunningState, "Running State", "running-state", "runningState"),
             make(FoxESSSchedulerEnabled),
-            *[make(FoxESSSchedulerSegment, i) for i in range(1, 9)],
+            make(FoxESSSchedulerGroups, devicesn),
         ]
     )
 
@@ -640,9 +705,26 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
         )
         hass.data[_registered_key] = True
 
+    _ws_key = "foxess_ws_registered"
+    if not hass.data.get(_ws_key):
+        websocket_api.async_register_command(
+            hass,
+            "foxess/save_schedule",
+            _ws_save_schedule,
+            websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+                {
+                    vol.Required("type"): "foxess/save_schedule",
+                    vol.Required("deviceSN"): str,
+                    vol.Required("groups"): list,
+                }
+            ),
+        )
+        hass.data[_ws_key] = True
+
     if hass.is_running:
         await _register_lovelace_resource(hass)
     else:
+
         async def _on_ha_start(_event) -> None:
             await _register_lovelace_resource(hass)
 
@@ -993,6 +1075,41 @@ async def getSchedulerSegments(hass, allData, devicesn, apiKey):
     )
 
 
+async def setSchedulerSegments(
+    hass: HomeAssistant, devicesn: str, apiKey: str, groups: list
+) -> tuple[FetchResult, str]:
+    """POST updated schedule groups to FoxESS Cloud /op/v1/device/scheduler/enable."""
+    await waitforAPI()
+    path = _ENDPOINT_OA_SCHEDULER_ENABLE
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+    session = async_get_clientsession(hass, verify_ssl=DEFAULT_VERIFY_SSL)
+    try:
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        async with session.post(
+            _ENDPOINT_OA_DOMAIN + path,
+            headers=headerData,
+            json={"deviceSN": devicesn, "groups": groups},
+            timeout=timeout,
+        ) as resp:
+            data = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("setSchedulerSegments: network error")
+        return FetchResult.ERROR, "Network error — please try again."
+
+    if data.get("errno") == 0:
+        _LOGGER.debug("setSchedulerSegments: success")
+        return FetchResult.OK, ""
+
+    _LOGGER.error("setSchedulerSegments: bad response %s", data)
+    api_msg = data.get("msg") or "FoxESS Cloud returned an error."
+    return (
+        FetchResult.AUTH_FAILED
+        if data.get("errno") in _AUTH_ERRNO
+        else FetchResult.ERROR,
+        api_msg,
+    )
+
+
 async def getReport(hass, allData, apiKey, devicesn):
     """Fetch monthly energy report data from FoxESS OpenAPI and populate allData['report']."""
     await waitforAPI()  # check for api delay
@@ -1318,13 +1435,13 @@ async def getRaw(
                                 allData["online"],
                             )
                     elif variableValue == "163" and not allData["online"]:
-                            # on-grid but showing off-line wait for it to be set on-line by OADeviceDetail
-                            # allData["online"] = False
-                            _LOGGER.debug(
-                                "Inverter on-grid but off-line wait for OADevice to confirm, TestState: %s, hasBat: %s",
-                                variableValue,
-                                hasBat,
-                            )
+                        # on-grid but showing off-line wait for it to be set on-line by OADeviceDetail
+                        # allData["online"] = False
+                        _LOGGER.debug(
+                            "Inverter on-grid but off-line wait for OADevice to confirm, TestState: %s, hasBat: %s",
+                            variableValue,
+                            hasBat,
+                        )
 
         return FetchResult.OK
 
@@ -1898,50 +2015,30 @@ class FoxESSSchedulerEnabled(CoordinatorEntity, SensorEntity):
         return "enabled" if enabled else "disabled"
 
 
-class FoxESSSchedulerSegment(CoordinatorEntity, SensorEntity):
-    """Sensor entity for a single FoxESS scheduler time segment slot."""
+class FoxESSSchedulerGroups(CoordinatorEntity, SensorEntity):
+    """Sensor entity holding the full FoxESS scheduler group list."""
 
     _attr_icon = "mdi:calendar-clock"
 
-    def __init__(self, coordinator, name, deviceID, segment_index: int):
-        """Initialize the scheduler segment sensor entity."""
+    def __init__(self, coordinator, name, deviceID, device_sn: str = ""):
+        """Initialize the scheduler groups sensor entity."""
         super().__init__(coordinator=coordinator)
-        self._segment_index = segment_index
-        _LOGGER.debug("Initiating Entity - Scheduler Slot %s", segment_index)
-        self._attr_name = f"{name} - Scheduler Slot {segment_index}"
-        self._attr_unique_id = f"{deviceID}scheduler-slot-{segment_index}"
-
-    def _get_group(self) -> dict | None:
-        """Return the group dict for this slot index, or None if it doesn't exist."""
-        groups = self.coordinator.data["scheduler"]["groups"]
-        idx = self._segment_index - 1
-        return groups[idx] if idx < len(groups) else None
+        self._device_sn = device_sn
+        _LOGGER.debug("Initiating Entity - Scheduler Groups")
+        self._attr_name = f"{name} - Scheduler Groups"
+        self._attr_unique_id = f"{deviceID}scheduler-groups"
 
     @property
-    def native_value(self) -> str | None:
-        """Return work mode if slot exists or None if slot absent."""
-        group = self._get_group()
-        if group is None:
-            return None
-        return group.get("workMode", "unknown")
+    def native_value(self) -> int:
+        """Return the number of configured scheduler groups."""
+        return len(self.coordinator.data["scheduler"]["groups"])
 
     @property
-    def extra_state_attributes(self) -> dict | None:
-        """Return start/end times and power settings as attributes."""
-        group = self._get_group()
-        if group is None:
-            return None
-        start_h = group.get("startHour", 0)
-        start_m = group.get("startMinute", 0)
-        end_h = group.get("endHour", 0)
-        end_m = group.get("endMinute", 0)
+    def extra_state_attributes(self) -> dict:
+        """Return the full groups list and device SN as attributes."""
         return {
-            "enabled": bool(group.get("enable")),
-            "start": f"{start_h:02d}:{start_m:02d}",
-            "end": f"{end_h:02d}:{end_m:02d}",
-            "min_soc_on_grid": group.get("minSocOnGrid"),
-            "fd_soc": group.get("fdSoc"),
-            "fd_pwr_w": group.get("fdPwr"),
+            "groups": self.coordinator.data["scheduler"]["groups"],
+            "device_sn": self._device_sn,
         }
 
 

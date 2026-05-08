@@ -10,6 +10,10 @@ class FoxESSSchedulerCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
+    this._dialog = null;
+    this._editGroups = null;
+    this._deviceSN = null;
+    this._drag = null;
   }
 
   set hass(hass) {
@@ -26,13 +30,14 @@ class FoxESSSchedulerCard extends HTMLElement {
   _findEntities() {
     const states = this._hass.states;
     let schedulerEnabled = null;
-    const slots = [];
+    let groupsEntityId = null;
 
     for (const [id, state] of Object.entries(states)) {
       if (!id.startsWith('sensor.')) continue;
       const attrs = state.attributes;
-      if (attrs.start !== undefined && attrs.end !== undefined && attrs.min_soc_on_grid !== undefined) {
-        slots.push(id);
+      if (Array.isArray(attrs.groups)) {
+        groupsEntityId = id;
+        this._deviceSN = attrs.device_sn ?? null;
       } else if (
         (state.state === 'enabled' || state.state === 'disabled') &&
         attrs.friendly_name?.toLowerCase().includes('scheduler')
@@ -41,12 +46,7 @@ class FoxESSSchedulerCard extends HTMLElement {
       }
     }
 
-    slots.sort((a, b) => {
-      const n = id => parseInt(id.match(/_slot_(\d+)/)?.[1] ?? '99');
-      return n(a) - n(b);
-    });
-
-    return { schedulerEnabled, slots };
+    return { schedulerEnabled, groupsEntityId };
   }
 
   _toMins(timeStr) {
@@ -55,11 +55,16 @@ class FoxESSSchedulerCard extends HTMLElement {
     return h * 60 + m;
   }
 
+  _minsToStr(mins) {
+    return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  }
+
   _render() {
     if (!this._hass) return;
+    if (this._dialog?.open) return;
 
-    const { schedulerEnabled, slots } = this._findEntities();
-    if (!schedulerEnabled && slots.length === 0) {
+    const { schedulerEnabled, groupsEntityId } = this._findEntities();
+    if (!schedulerEnabled && !groupsEntityId) {
       this.shadowRoot.innerHTML = `<ha-card><div style="padding:16px;color:var(--secondary-text-color)">No FoxESS scheduler entities found.</div></ha-card>`;
       return;
     }
@@ -68,22 +73,26 @@ class FoxESSSchedulerCard extends HTMLElement {
     const curMins = now.getHours() * 60 + now.getMinutes();
     const enabledState = schedulerEnabled ? (this._hass.states[schedulerEnabled]?.state ?? 'unavailable') : 'unavailable';
 
-    const slotData = slots.map((id, idx) => {
-      const s = this._hass.states[id];
-      if (!s || s.state === 'unknown' || s.state === 'unavailable') return null;
-      const { start, end, enabled, min_soc_on_grid, fd_soc, fd_pwr_w } = s.attributes;
-      const startMins = this._toMins(start);
-      const endMins = this._toMins(end);
-      const isActive = enabled && s.state !== 'disabled' &&
-        startMins >= 0 && endMins > startMins &&
+    const rawGroups = groupsEntityId ? (this._hass.states[groupsEntityId]?.attributes?.groups ?? []) : [];
+    const slotData = rawGroups.map((g, idx) => {
+      const startMins = g.startHour * 60 + g.startMinute;
+      const endMins = g.endHour * 60 + g.endMinute;
+      const isActive = !!g.enable && endMins > startMins &&
         curMins >= startMins && curMins < endMins;
       return {
-        idx: idx + 1, state: s.state, start, end, enabled,
-        min_soc_on_grid, fd_soc, fd_pwr_w,
+        idx: idx + 1,
+        state: g.workMode,
+        start: `${String(g.startHour).padStart(2, '0')}:${String(g.startMinute).padStart(2, '0')}`,
+        end: `${String(g.endHour).padStart(2, '0')}:${String(g.endMinute).padStart(2, '0')}`,
+        enabled: !!g.enable,
+        min_soc_on_grid: g.minSocOnGrid,
+        fd_soc: g.fdSoc,
+        fd_pwr_w: g.fdPwr,
+        max_soc: g.maxSoc ?? 100,
         startMins, endMins, isActive,
-        cfg: WORK_MODES[s.state] ?? null,
+        cfg: WORK_MODES[g.workMode] ?? null,
       };
-    }).filter(Boolean).filter(s => s.startMins !== s.endMins);
+    }).filter(s => s.startMins !== s.endMins);
 
     const isRemaining = s => s.startMins === 0 && s.endMins === 1439;
     const remainingSlot = slotData.find(isRemaining) ?? null;
@@ -94,31 +103,31 @@ class FoxESSSchedulerCard extends HTMLElement {
       const w = ((s.endMins - s.startMins) / 1440 * 100).toFixed(2);
       return `<div class="seg${s.isActive ? ' seg-active' : ''}" data-slot="${s.idx}" style="left:${l}%;width:${w}%;background:${s.cfg.color}" title="${s.cfg.label}: ${s.start}–${s.end}"></div>`;
     };
-    // Draw remaining slot first so other slots render on top of it.
-    const remainingSeg = (remainingSlot?.enabled && remainingSlot?.cfg) ? toSeg(remainingSlot) : '';
-    const normalSegs = normalSlots
+    const segments = normalSlots
       .filter(s => s.enabled && s.cfg && s.startMins >= 0 && s.endMins > s.startMins)
       .map(toSeg).join('');
-    const segments = remainingSeg + normalSegs;
 
     const nowPct = (curMins / 1440 * 100).toFixed(2);
 
-    const makeRow = (s, label, showTime) => {
+    const makeRow = (s, showTime) => {
       const color = (!s.enabled) ? '#9e9e9e' : (s.cfg?.color ?? '#9e9e9e');
-      const badge = `<span class="badge" style="background:${color}22;color:${color};border-color:${color}55">${label}</span>`;
+      const modeLabel = s.cfg ? s.cfg.label : s.state;
+      const badge = `<span class="badge" style="background:${color}33;border-color:${color}88">${modeLabel}</span>`;
       const pwr = s.fd_pwr_w != null ? (s.fd_pwr_w / 1000).toFixed(1) + ' kW' : '—';
+      const timeCells = showTime
+        ? `<td>${s.start ?? '—'}</td><td>${s.end ?? '—'}</td>`
+        : `<td colspan="2" style="color:var(--secondary-text-color,#888)">Remaining Time Slots</td>`;
       return `<tr data-slot="${s.idx}" class="${s.isActive ? 'row-active' : ''} ${!s.enabled ? 'row-off' : ''}">
-        <td>${showTime ? (s.start ?? '—') : ''}</td>
-        <td>${showTime ? (s.end ?? '—') : ''}</td>
+        ${timeCells}
         <td>${badge}</td>
         <td>${s.min_soc_on_grid ?? '—'}%</td>
         <td>${s.fd_soc ?? '—'}%</td>
         <td>${pwr}</td>
       </tr>`;
     };
-    const normalRows = normalSlots.map(s => makeRow(s, s.cfg ? s.cfg.label : s.state, true)).join('');
+    const normalRows = normalSlots.map(s => makeRow(s, true)).join('');
     const remainingRow = remainingSlot
-      ? `<tr><td colspan="6" class="remaining-sep"></td></tr>${makeRow(remainingSlot, 'Remaining Time Slots', false)}`
+      ? `<tr><td colspan="6" class="remaining-sep"></td></tr>${makeRow(remainingSlot, false)}`
       : '';
     const rows = normalRows + remainingRow;
 
@@ -128,14 +137,17 @@ class FoxESSSchedulerCard extends HTMLElement {
       <style>
         ha-card { padding: 16px 16px 12px; }
         .hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+        .hdr-right { display:flex; align-items:center; gap:8px; }
         .title { font-size:1.1em; font-weight:500; color:var(--primary-text-color); }
         .status { font-size:.75em; font-weight:600; padding:2px 10px; border-radius:12px; text-transform:capitalize; border:1px solid; }
-        .status-on  { background:#4caf5022; color:#4caf50; border-color:#4caf5066; }
-        .status-off { background:#9e9e9e22; color:#9e9e9e; border-color:#9e9e9e66; }
+        .status-on  { background:#4caf5033; border-color:#4caf5099; }
+        .status-off { background:#9e9e9e33; border-color:#9e9e9e99; }
+        .edit-btn { font-size:.75em; padding:2px 10px; border-radius:12px; border:1px solid var(--primary-color,#03a9f4); background:transparent; cursor:pointer; }
+        .edit-btn:hover { background:color-mix(in srgb,var(--primary-color,#03a9f4) 15%,transparent); }
         .tl { position:relative; height:24px; background:var(--divider-color,#e0e0e0); border-radius:5px; overflow:visible; margin-bottom:3px; }
-        .seg { position:absolute; height:100%; border-radius:4px; opacity:.75; cursor:pointer; }
-        .seg-active { opacity:1; box-shadow:0 1px 5px rgba(0,0,0,.3); }
-        .seg.hovered { opacity:1; box-shadow:0 1px 8px rgba(0,0,0,.45); outline:2px solid rgba(255,255,255,.6); }
+        .seg { position:absolute; height:100%; border-radius:4px; opacity:.75; cursor:pointer; box-shadow:inset 0 0 0 1px rgba(255,255,255,.4); }
+        .seg-active { opacity:1; box-shadow:0 1px 5px rgba(0,0,0,.3),inset 0 0 0 1px rgba(255,255,255,.4); }
+        .seg.hovered { opacity:1; box-shadow:0 1px 8px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.4); outline:2px solid rgba(255,255,255,.6); }
         .now { position:absolute; width:2px; height:32px; top:-4px; z-index:5; background:var(--primary-text-color,#333); border-radius:1px; pointer-events:none; }
         .tl-labels { display:flex; justify-content:space-between; font-size:.65em; color:var(--secondary-text-color); margin-bottom:12px; padding:0 1px; }
         table { width:100%; border-collapse:collapse; font-size:.82em; }
@@ -151,7 +163,10 @@ class FoxESSSchedulerCard extends HTMLElement {
       <ha-card>
         <div class="hdr">
           <span class="title">FoxESS Scheduler</span>
-          <span class="status ${statusCls}">${enabledState}</span>
+          <div class="hdr-right">
+            <button class="edit-btn" title="Edit schedule">Edit</button>
+            <span class="status ${statusCls}">${enabledState}</span>
+          </div>
         </div>
         <div class="tl">
           ${segments}
@@ -175,6 +190,688 @@ class FoxESSSchedulerCard extends HTMLElement {
         root.querySelectorAll(`[data-slot="${el.dataset.slot}"]`).forEach(e => e.classList.remove('hovered'));
       });
     });
+
+    root.querySelector('.edit-btn')?.addEventListener('click', () => {
+      this._openEditModal(slotData);
+    });
+  }
+
+  // ── Modal open ────────────────────────────────────────────────────────────
+
+  _openEditModal(slotData) {
+    this._editGroups = slotData.map(s => ({
+      startMins: s.startMins,
+      endMins: s.endMins,
+      enable: s.enabled ? 1 : 0,
+      workMode: s.state,
+      minSocOnGrid: s.min_soc_on_grid ?? 10,
+      fdSoc: s.fd_soc ?? 90,
+      fdPwr: s.fd_pwr_w ?? 0,
+      maxSoc: s.max_soc ?? 100,
+    }));
+
+    if (!this._dialog || !this._dialog.isConnected) {
+      this._dialog = document.createElement('dialog');
+      this.shadowRoot.appendChild(this._dialog);
+    }
+    this._renderModal();
+    this._dialog.showModal();
+  }
+
+  // ── Modal render ──────────────────────────────────────────────────────────
+
+  _renderModal() {
+    if (!this._dialog) return;
+    const groups = this._editGroups;
+    const isRemaining = g => g.startMins === 0 && g.endMins === 1439;
+
+    const segHtml = groups.map((g, idx) => {
+      if (isRemaining(g)) return '';
+      const cfg = WORK_MODES[g.workMode] ?? { color: '#9e9e9e' };
+      const l = (g.startMins / 1440 * 100).toFixed(3);
+      const w = ((g.endMins - g.startMins) / 1440 * 100).toFixed(3);
+      const hatchDiv = g.enable ? '' : '<div class="hatch-overlay"></div>';
+      return `<div class="seg-group" data-idx="${idx}" style="left:calc(${l}% - 12px);width:calc(${w}% + 24px)">
+          <div class="edit-seg" data-idx="${idx}" style="background-color:${cfg.color}">${hatchDiv}</div>
+          <div class="edge-handle lh" data-edge="left" data-idx="${idx}"></div>
+          <div class="edge-handle rh" data-edge="right" data-idx="${idx}"></div>
+        </div>`;
+    }).join('');
+
+    const makeEditRow = (g, idx, showTime) => {
+      const cfg = WORK_MODES[g.workMode] ?? { color: '#9e9e9e' };
+      const modeOpts = Object.entries(WORK_MODES).map(([k, { label }]) =>
+        `<option value="${k}"${k === g.workMode ? ' selected' : ''}>${label}</option>`
+      ).join('');
+      const timeCells = showTime
+        ? `<td class="time-start">${this._minsToStr(g.startMins)}</td><td class="time-end">${this._minsToStr(g.endMins)}</td>`
+        : `<td colspan="2" style="color:var(--secondary-text-color,#888)">Remaining Time Slots</td>`;
+      const delCell = showTime
+        ? `<td><button class="del-btn" data-idx="${idx}" title="Delete"><ha-icon icon="mdi:delete"></ha-icon></button></td>`
+        : `<td></td>`;
+      return `<tr data-idx="${idx}">
+        ${timeCells}
+        <td><select class="mode-sel" data-idx="${idx}" style="border-left:3px solid ${cfg.color}">${modeOpts}</select></td>
+        <td><input type="number" class="num-input" data-idx="${idx}" data-field="minSocOnGrid" value="${g.minSocOnGrid}" min="0" max="100" step="1" style="width:3.5em"></td>
+        <td><input type="number" class="num-input" data-idx="${idx}" data-field="fdSoc" value="${g.fdSoc}" min="0" max="100" step="1" style="width:3.5em"></td>
+        <td><input type="number" class="num-input" data-idx="${idx}" data-field="fdPwr" value="${g.fdPwr}" min="0" max="15000" step="100" style="width:4.5em"></td>
+        <td style="text-align:center"><input type="checkbox" class="enable-cb" data-idx="${idx}"${g.enable ? ' checked' : ''}></td>
+        ${delCell}
+      </tr>`;
+    };
+
+    const normalRowHtml = groups.map((g, idx) => isRemaining(g) ? '' : makeEditRow(g, idx, true)).join('');
+    const remainingIdx = groups.findIndex(isRemaining);
+    const remainingRowHtml = remainingIdx >= 0
+      ? `<tr><td colspan="8" class="remaining-sep"></td></tr>${makeEditRow(groups[remainingIdx], remainingIdx, false)}`
+      : '';
+    const rowHtml = normalRowHtml + remainingRowHtml;
+
+    this._dialog.innerHTML = `
+      <style>
+        dialog {
+          padding: 0; border: none; border-radius: 10px;
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #333);
+          box-shadow: 0 8px 32px rgba(0,0,0,.4);
+          min-width: min(96vw, 600px); max-width: 96vw; max-height: 90vh;
+          overflow-y: auto;
+        }
+        dialog::backdrop { background: rgba(0,0,0,.5); }
+        .dlg-inner { padding: 16px; }
+        .dlg-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+        .dlg-title { font-size:1.1em; font-weight:600; color:var(--primary-text-color,#333); }
+        .close-btn { background:none; border:none; cursor:pointer; font-size:1.5em; line-height:1; padding:0 4px; color:var(--secondary-text-color,#888); }
+        .close-btn:hover { color:var(--primary-text-color,#333); }
+        .edit-tl {
+          position: relative; height: 32px;
+          background: var(--divider-color, #e0e0e0);
+          border-radius: 5px; margin-bottom: 4px;
+          user-select: none; cursor: crosshair; overflow: visible;
+        }
+        .seg-group { position: absolute; height: 100%; overflow: visible; pointer-events: none; }
+        .edit-seg {
+          position: absolute; inset: 0 12px; border-radius: 3px;
+          box-sizing: border-box; cursor: grab; overflow: hidden;
+          opacity: .75; box-shadow: inset 0 0 0 1px rgba(255,255,255,.4);
+          pointer-events: auto;
+        }
+        .dlg-inner.seg-dragging, .dlg-inner.seg-dragging * { cursor: grabbing !important; }
+        .hatch-overlay {
+          position: absolute; inset: 1px; pointer-events: none;
+          background-image: repeating-linear-gradient(45deg,rgba(0,0,0,.18) 0,rgba(0,0,0,.18) 2px,transparent 2px,transparent 8px),
+                            repeating-linear-gradient(135deg,rgba(0,0,0,.18) 0,rgba(0,0,0,.18) 2px,transparent 2px,transparent 8px);
+          background-attachment: fixed;
+        }
+        .edge-handle {
+          position: absolute; top: 0; width: 10px; height: 100%;
+          cursor: col-resize; background: rgba(255,255,255,.4); z-index: 2;
+          border-radius: 3px; transition: background .1s;
+          display: none; pointer-events: auto;
+        }
+        .edge-handle:hover { background: rgba(255,255,255,.75); }
+        .edge-handle.h-visible { display: block; }
+        .edge-handle.lh { left: 2px; transform: translateX(-2px); }
+        .edge-handle.rh { right: 2px; transform: translateX(2px); }
+        .edge-handle::before, .edge-handle::after {
+          content: ''; position: absolute; top: 20%; height: 60%;
+          width: 1px; border-radius: 1px; background: rgba(255,255,255,.7);
+        }
+        .edge-handle::before { left: 3px; }
+        .edge-handle::after  { left: 6px; }
+        .edit-seg.seg-hover { opacity:1; outline: 2px solid rgba(255,255,255,.6); box-shadow: 0 1px 8px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.4); z-index: 1; }
+        .tl-labels { display:flex; justify-content:space-between; font-size:.65em; color:var(--secondary-text-color); margin-bottom:10px; padding:0 1px; }
+        .table-wrap { overflow-x: auto; }
+        .modal-table { width:100%; border-collapse:collapse; font-size:.82em; }
+        .modal-table th { padding:3px 5px; text-align:left; color:var(--secondary-text-color,#888); font-weight:500; border-bottom:1px solid var(--divider-color,#e0e0e0); white-space:nowrap; }
+        .modal-table td { padding:4px 5px; white-space:nowrap; color:var(--primary-text-color,#333); }
+        select, input[type=number] {
+          background: var(--secondary-background-color, #f5f5f5);
+          color: inherit; border: 1px solid var(--divider-color,#ccc);
+          border-radius: 4px; padding: 2px 4px; font-size: inherit;
+          box-sizing: border-box;
+        }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+        input[type=checkbox] { cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary-color,#03a9f4); }
+        .mode-picker {
+          position: fixed;
+          background: var(--card-background-color, #fff);
+          border: 1px solid var(--divider-color, #ccc);
+          border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.3);
+          z-index: 10000; overflow: hidden; min-width: 140px;
+        }
+        .mode-picker button {
+          display: block; width: 100%; padding: 7px 12px 7px 14px;
+          border: none; background: none; cursor: pointer;
+          text-align: left; font-size: .9em;
+          color: var(--primary-text-color, #333);
+          border-bottom: 1px solid var(--divider-color, #eee);
+        }
+        .mode-picker button:last-child { border-bottom: none; }
+        .mode-picker button:hover { background: var(--secondary-background-color, #f0f0f0); }
+        .mode-picker-sep { border-top: 1px solid var(--divider-color, #eee); margin: 2px 0 0; }
+        .mode-picker .picker-del-btn { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--error-color, #f44336); border-left: none; }
+        .mode-picker .picker-del-btn:hover { background: rgba(244,67,54,.1); }
+        .dlg-footer { margin-top: 14px; }
+        .modal-error { display: block; min-height: 1.3em; color: var(--error-color, #cf6679); font-size: .85em; margin-bottom: 6px; }
+        .btn-row { display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
+        .action-btn { padding: 7px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: .9em; font-weight: 500; }
+        .save-btn { background-color: var(--primary-color, #03a9f4); background-image: linear-gradient(rgba(0,0,0,.2), rgba(0,0,0,.2)); color: #fff; }
+        .save-btn:disabled { opacity: .5; cursor: default; }
+        .cancel-btn { background: var(--secondary-background-color, #f0f0f0); color: var(--primary-text-color, #333); }
+        .spinner { font-size: .85em; color: var(--secondary-text-color, #888); }
+        .remaining-sep { padding:5px 0 1px; border-top:1px solid var(--divider-color,#e0e0e0); }
+        .del-btn { background:none; border:none; cursor:pointer; padding:2px 4px; color:var(--error-color,#f44336); opacity:.6; border-radius:4px; display:flex; align-items:center; }
+        .del-btn:hover { opacity:1; background:rgba(244,67,54,.1); }
+      </style>
+      <div class="dlg-inner">
+        <div class="dlg-hdr">
+          <span class="dlg-title">Edit Schedule</span>
+          <button class="close-btn" aria-label="Close">&#x2715;</button>
+        </div>
+        <div class="edit-tl">${segHtml}</div>
+        <div class="tl-labels">
+          <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+        </div>
+        <div class="table-wrap">
+          <table class="modal-table">
+            <thead><tr>
+              <th>Start</th><th>End</th><th>Mode</th>
+              <th>Min SoC%</th><th>FD SoC%</th><th>FD Pwr (W)</th><th style="text-align:center">On</th><th></th>
+            </tr></thead>
+            <tbody>${rowHtml}</tbody>
+          </table>
+        </div>
+        <div class="dlg-footer">
+          <span class="modal-error"></span>
+          <div class="btn-row">
+            <button class="action-btn cancel-btn">Cancel</button>
+            <button class="action-btn save-btn">Save</button>
+            <span class="spinner" style="display:none">Saving…</span>
+          </div>
+        </div>
+      </div>`;
+
+    this._attachModalListeners();
+  }
+
+  _attachModalListeners() {
+    const dlg = this._dialog;
+
+    dlg.querySelector('.close-btn').addEventListener('click', () => dlg.close());
+    dlg.querySelector('.cancel-btn').addEventListener('click', () => dlg.close());
+    dlg.querySelector('.save-btn').addEventListener('click', () => this._saveSchedule());
+
+    let hoverIdx = null;
+
+    const showGroup = idx => {
+      if (hoverIdx !== null && hoverIdx !== idx) hideGroup(hoverIdx);
+      hoverIdx = idx;
+      const grp = dlg.querySelector(`.seg-group[data-idx="${idx}"]`);
+      if (grp) grp.style.zIndex = '1';
+      dlg.querySelectorAll(`.edge-handle[data-idx="${idx}"]`).forEach(h => h.classList.add('h-visible'));
+      dlg.querySelector(`.edit-seg[data-idx="${idx}"]`)?.classList.add('seg-hover');
+    };
+    const hideGroup = idx => {
+      if (hoverIdx === idx) hoverIdx = null;
+      const grp = dlg.querySelector(`.seg-group[data-idx="${idx}"]`);
+      if (grp) grp.style.zIndex = '';
+      dlg.querySelectorAll(`.edge-handle[data-idx="${idx}"]`).forEach(h => h.classList.remove('h-visible'));
+      dlg.querySelector(`.edit-seg[data-idx="${idx}"]`)?.classList.remove('seg-hover');
+    };
+
+    dlg.querySelectorAll('.edit-seg').forEach(el => {
+      el.addEventListener('mouseenter', e => {
+        const newIdx = e.currentTarget.dataset.idx;
+        // Suppress if cursor is still within the active group's bounds (adjacent seg-groups overlap by 24px)
+        if (hoverIdx !== null && hoverIdx !== newIdx) {
+          const activeGrp = dlg.querySelector(`.seg-group[data-idx="${hoverIdx}"]`);
+          if (activeGrp) {
+            const r = activeGrp.getBoundingClientRect();
+            if (e.clientX >= r.left && e.clientX <= r.right &&
+                e.clientY >= r.top && e.clientY <= r.bottom) return;
+          }
+        }
+        showGroup(newIdx);
+      });
+      el.addEventListener('pointerdown', e => this._onSegBodyDown(e));
+      el.addEventListener('dblclick', e => this._onSegDblClick(e));
+    });
+
+    const tl = dlg.querySelector('.edit-tl');
+    tl.addEventListener('pointermove', e => {
+      if (hoverIdx === null || this._drag) return;
+      const grp = dlg.querySelector(`.seg-group[data-idx="${hoverIdx}"]`);
+      if (!grp) return;
+      const r = grp.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+        hideGroup(hoverIdx);
+        // mouseenter won't re-fire if cursor was already inside the adjacent segment — show it explicitly
+        const seg = e.target.closest('.edit-seg');
+        if (seg) showGroup(seg.dataset.idx);
+      }
+    });
+    const withinActiveGroup = (clientX, clientY) => {
+      if (hoverIdx === null) return false;
+      const grp = dlg.querySelector(`.seg-group[data-idx="${hoverIdx}"]`);
+      if (!grp) return false;
+      const r = grp.getBoundingClientRect();
+      return clientX >= r.left && clientX <= r.right &&
+             (clientY === undefined || (clientY >= r.top && clientY <= r.bottom));
+    };
+    tl.addEventListener('mouseleave', e => {
+      if (hoverIdx === null || this._drag) return;
+      // Don't hide if cursor is still within the active seg-group's bounds
+      // (handles protrude past the timeline's left/right edge)
+      if (withinActiveGroup(e.clientX, e.clientY)) return;
+      hideGroup(hoverIdx);
+    });
+
+    dlg.querySelectorAll('.edge-handle').forEach(el => {
+      el.addEventListener('pointerdown', e => this._onEdgeDragStart(e));
+      el.addEventListener('dblclick', e => e.stopPropagation());
+      el.addEventListener('mouseleave', e => {
+        if (hoverIdx === null || this._drag) return;
+        if (!withinActiveGroup(e.clientX, e.clientY)) hideGroup(hoverIdx);
+      });
+    });
+
+    tl.addEventListener('dblclick', e => this._onTlDblClick(e));
+
+    dlg.querySelectorAll('.mode-sel').forEach(sel => {
+      sel.addEventListener('change', e => {
+        const idx = parseInt(e.currentTarget.dataset.idx);
+        const mode = e.currentTarget.value;
+        this._editGroups[idx].workMode = mode;
+        const cfg = WORK_MODES[mode] ?? { color: '#9e9e9e' };
+        const segEl = dlg.querySelector(`.edit-seg[data-idx="${idx}"]`);
+        if (segEl) this._applySegBg(segEl, cfg.color, this._editGroups[idx].enable);
+        e.currentTarget.style.borderLeftColor = cfg.color;
+      });
+    });
+
+    dlg.querySelectorAll('.num-input').forEach(inp => {
+      inp.addEventListener('change', e => {
+        const idx = parseInt(e.currentTarget.dataset.idx);
+        const field = e.currentTarget.dataset.field;
+        this._editGroups[idx][field] = parseInt(e.currentTarget.value) || 0;
+      });
+    });
+
+    dlg.querySelectorAll('.enable-cb').forEach(cb => {
+      cb.addEventListener('change', e => {
+        const idx = parseInt(e.currentTarget.dataset.idx);
+        this._editGroups[idx].enable = e.currentTarget.checked ? 1 : 0;
+        const segEl = dlg.querySelector(`.edit-seg[data-idx="${idx}"]`);
+        if (segEl) {
+          const cfg = WORK_MODES[this._editGroups[idx].workMode] ?? { color: '#9e9e9e' };
+          this._applySegBg(segEl, cfg.color, this._editGroups[idx].enable);
+        }
+      });
+    });
+
+    dlg.querySelectorAll('.del-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const idx = parseInt(e.currentTarget.dataset.idx);
+        this._editGroups.splice(idx, 1);
+        this._renderModal();
+      });
+    });
+  }
+
+  _applySegBg(el, color, enable) {
+    el.style.backgroundColor = color;
+    let overlay = el.querySelector('.hatch-overlay');
+    if (!enable) {
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'hatch-overlay';
+        el.appendChild(overlay);
+      }
+    } else {
+      overlay?.remove();
+    }
+  }
+
+  // ── Drag logic ────────────────────────────────────────────────────────────
+
+  _onEdgeDragStart(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget;
+    const groupIdx = parseInt(handle.dataset.idx);
+    const edge = handle.dataset.edge;
+
+    const tl = this._dialog.querySelector('.edit-tl');
+    const tlRect = tl.getBoundingClientRect();
+    const groups = this._editGroups;
+    const g = groups[groupIdx];
+
+    // Find immediately adjacent (touching) group
+    let adjacentIdx = null;
+    if (edge === 'left') {
+      for (let i = 0; i < groups.length; i++) {
+        if (i !== groupIdx && groups[i].endMins === g.startMins) { adjacentIdx = i; break; }
+      }
+    } else {
+      for (let i = 0; i < groups.length; i++) {
+        if (i !== groupIdx && groups[i].startMins === g.endMins) { adjacentIdx = i; break; }
+      }
+    }
+
+    // Precompute bounds that don't depend on shift state
+    let noShiftBound;
+    if (edge === 'left') {
+      noShiftBound = groups.reduce((mx, gr, i) =>
+        i !== groupIdx && gr.endMins <= g.startMins ? Math.max(mx, gr.endMins) : mx, 0);
+    } else {
+      const nexts = groups
+        .filter((gr, i) => i !== groupIdx && gr.startMins >= g.endMins)
+        .map(gr => gr.startMins);
+      noShiftBound = nexts.length ? Math.min(...nexts) : 1440;
+    }
+
+    // Shift bound: adjacent must keep ≥10 min duration
+    const shiftBound = adjacentIdx !== null
+      ? (edge === 'left'
+          ? groups[adjacentIdx].startMins + 10
+          : groups[adjacentIdx].endMins - 10)
+      : (edge === 'left' ? 0 : 1440);
+
+    this._drag = { groupIdx, edge, tlLeft: tlRect.left, tlWidth: tlRect.width, adjacentIdx, noShiftBound, shiftBound };
+    handle.setPointerCapture(e.pointerId);
+    handle.addEventListener('pointermove', this._onEdgeDragMove);
+    handle.addEventListener('pointerup', this._onEdgeDragEnd);
+  }
+
+  _onEdgeDragMove = (e) => {
+    if (!this._drag) return;
+    const { groupIdx, edge, tlLeft, tlWidth, adjacentIdx, noShiftBound, shiftBound } = this._drag;
+    const groups = this._editGroups;
+    const g = groups[groupIdx];
+
+    const rawMins = Math.round(((e.clientX - tlLeft) / tlWidth) * 1440 / 10) * 10;
+    const useShift = e.shiftKey && adjacentIdx !== null;
+    const bound = useShift ? shiftBound : noShiftBound;
+
+    let newMins;
+    if (edge === 'left') {
+      newMins = Math.max(bound, Math.min(g.endMins - 10, rawMins));
+      if (useShift) {
+        groups[adjacentIdx].endMins = newMins;
+        this._updateSegStyle(adjacentIdx);
+        this._updateTableRowTimes(adjacentIdx);
+      }
+      g.startMins = newMins;
+    } else {
+      newMins = Math.min(bound, Math.max(g.startMins + 10, rawMins));
+      if (useShift) {
+        groups[adjacentIdx].startMins = newMins;
+        this._updateSegStyle(adjacentIdx);
+        this._updateTableRowTimes(adjacentIdx);
+      }
+      g.endMins = newMins;
+    }
+
+    this._updateSegStyle(groupIdx);
+    this._updateTableRowTimes(groupIdx);
+  }
+
+  _onEdgeDragEnd = (e) => {
+    if (!this._drag) return;
+    const handle = e.currentTarget;
+    handle.releasePointerCapture(e.pointerId);
+    handle.removeEventListener('pointermove', this._onEdgeDragMove);
+    handle.removeEventListener('pointerup', this._onEdgeDragEnd);
+    this._drag = null;
+    this._renderModal();
+  }
+
+  // ── Segment body drag (move) ──────────────────────────────────────────────
+
+  _onSegBodyDown(e) {
+    if (e.button !== 0 || this._drag) return;
+    e.stopPropagation();
+    const el = e.currentTarget;
+    this._drag = { type: 'move-pending', groupIdx: parseInt(el.dataset.idx), startX: e.clientX, el };
+    el.setPointerCapture(e.pointerId);
+    el.addEventListener('pointermove', this._onSegBodyMove);
+    el.addEventListener('pointerup', this._onSegBodyUp);
+  }
+
+  _onSegBodyMove = (e) => {
+    if (!this._drag) return;
+    if (this._drag.type === 'move-pending') {
+      if (Math.abs(e.clientX - this._drag.startX) < 5) return;
+      this._activateSegMoveDrag(e);
+      // fall through to process the first move frame
+    }
+    if (this._drag.type !== 'move') return;
+
+    const { groupIdx, duration, mouseOffsetMins, tlLeft, tlWidth,
+            leftAdjIdx, rightAdjIdx,
+            noShiftMinStart, noShiftMaxStart, shiftMinStart, shiftMaxStart } = this._drag;
+    const groups = this._editGroups;
+    const g = groups[groupIdx];
+
+    const rawMins = ((e.clientX - tlLeft) / tlWidth) * 1440;
+    const newStart = Math.max(
+      e.shiftKey ? shiftMinStart : noShiftMinStart,
+      Math.min(
+        e.shiftKey ? shiftMaxStart : noShiftMaxStart,
+        Math.round((rawMins - mouseOffsetMins) / 10) * 10
+      )
+    );
+    const newEnd = newStart + duration;
+
+    g.startMins = newStart;
+    g.endMins = newEnd;
+    this._updateSegStyle(groupIdx);
+    this._updateTableRowTimes(groupIdx);
+
+    if (e.shiftKey) {
+      if (leftAdjIdx !== null) {
+        groups[leftAdjIdx].endMins = newStart;
+        this._updateSegStyle(leftAdjIdx);
+        this._updateTableRowTimes(leftAdjIdx);
+      }
+      if (rightAdjIdx !== null) {
+        groups[rightAdjIdx].startMins = newEnd;
+        this._updateSegStyle(rightAdjIdx);
+        this._updateTableRowTimes(rightAdjIdx);
+      }
+    }
+  }
+
+  _onSegBodyUp = (e) => {
+    if (!this._drag) return;
+    const { el } = this._drag;
+    el.releasePointerCapture(e.pointerId);
+    el.removeEventListener('pointermove', this._onSegBodyMove);
+    el.removeEventListener('pointerup', this._onSegBodyUp);
+    const wasActive = this._drag.type === 'move';
+    this._drag = null;
+    this._dialog.querySelector('.dlg-inner')?.classList.remove('seg-dragging');
+    if (wasActive) this._renderModal();
+  }
+
+  _activateSegMoveDrag(e) {
+    const { groupIdx, startX } = this._drag;
+    const groups = this._editGroups;
+    const g = groups[groupIdx];
+    const tl = this._dialog.querySelector('.edit-tl');
+    const tlRect = tl.getBoundingClientRect();
+    const duration = g.endMins - g.startMins;
+
+    // Offset: where in the segment the pointer was at mousedown (unrounded)
+    const mouseOffsetMins = ((startX - tlRect.left) / tlRect.width) * 1440 - g.startMins;
+
+    let leftAdjIdx = null, rightAdjIdx = null;
+    for (let i = 0; i < groups.length; i++) {
+      if (i === groupIdx) continue;
+      if (groups[i].endMins === g.startMins) leftAdjIdx = i;
+      if (groups[i].startMins === g.endMins) rightAdjIdx = i;
+    }
+
+    // No-shift bounds: the gap the segment currently occupies
+    const noShiftMinStart = groups.reduce((mx, gr, i) =>
+      i !== groupIdx && gr.endMins <= g.startMins ? Math.max(mx, gr.endMins) : mx, 0);
+    const noShiftRightEdge = groups.reduce((mn, gr, i) =>
+      i !== groupIdx && gr.startMins >= g.endMins ? Math.min(mn, gr.startMins) : mn, 1440);
+    const noShiftMaxStart = noShiftRightEdge - duration;
+
+    // Shift bounds: adjacent keeps ≥10 min
+    const shiftMinStart = leftAdjIdx !== null ? groups[leftAdjIdx].startMins + 10 : noShiftMinStart;
+    const shiftMaxEnd   = rightAdjIdx !== null ? groups[rightAdjIdx].endMins - 10 : noShiftRightEdge;
+    const shiftMaxStart = shiftMaxEnd - duration;
+
+    Object.assign(this._drag, {
+      type: 'move',
+      duration, mouseOffsetMins,
+      tlLeft: tlRect.left, tlWidth: tlRect.width,
+      leftAdjIdx, rightAdjIdx,
+      noShiftMinStart, noShiftMaxStart,
+      shiftMinStart, shiftMaxStart,
+    });
+    this._dialog.querySelector('.dlg-inner')?.classList.add('seg-dragging');
+  }
+
+  _updateSegStyle(idx) {
+    const g = this._editGroups[idx];
+    const el = this._dialog.querySelector(`.seg-group[data-idx="${idx}"]`);
+    if (!el) return;
+    el.style.left  = `calc(${(g.startMins / 1440 * 100).toFixed(3)}% - 12px)`;
+    el.style.width = `calc(${((g.endMins - g.startMins) / 1440 * 100).toFixed(3)}% + 24px)`;
+  }
+
+  _updateTableRowTimes(idx) {
+    const g = this._editGroups[idx];
+    const row = this._dialog.querySelector(`tr[data-idx="${idx}"]`);
+    if (!row) return;
+    const sc = row.querySelector('.time-start');
+    const ec = row.querySelector('.time-end');
+    if (sc) sc.textContent = this._minsToStr(g.startMins);
+    if (ec) ec.textContent = this._minsToStr(g.endMins);
+  }
+
+  // ── Double-click: mode picker ─────────────────────────────────────────────
+
+  _onSegDblClick(e) {
+    e.stopPropagation();
+    const segEl = e.currentTarget;
+    const groupIdx = parseInt(segEl.dataset.idx);
+
+    this._dialog.querySelector('.mode-picker')?.remove();
+
+    const picker = document.createElement('div');
+    picker.className = 'mode-picker';
+    picker.style.cssText = 'position:fixed;z-index:10000';
+
+    const segRect = segEl.getBoundingClientRect();
+    picker.style.left = segRect.left + 'px';
+    picker.style.top  = (segRect.bottom + 4) + 'px';
+
+    picker.innerHTML = Object.entries(WORK_MODES).map(([key, { label, color }]) =>
+      `<button data-mode="${key}" style="border-left:4px solid ${color}">${label}</button>`
+    ).join('') +
+      `<div class="mode-picker-sep"></div>
+       <button class="picker-del-btn"><ha-icon icon="mdi:delete"></ha-icon>Delete</button>`;
+
+    this._dialog.appendChild(picker);
+
+    picker.querySelectorAll('button[data-mode]').forEach(btn => {
+      btn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        this._editGroups[groupIdx].workMode = btn.dataset.mode;
+        picker.remove();
+        this._renderModal();
+      });
+    });
+
+    picker.querySelector('.picker-del-btn').addEventListener('click', ev => {
+      ev.stopPropagation();
+      this._editGroups.splice(groupIdx, 1);
+      picker.remove();
+      this._renderModal();
+    });
+
+    // Dismiss on click elsewhere
+    setTimeout(() => {
+      const dismiss = ev => {
+        if (!picker.contains(ev.target)) {
+          picker.remove();
+          this._dialog.removeEventListener('click', dismiss);
+          document.removeEventListener('click', dismiss);
+        }
+      };
+      this._dialog.addEventListener('click', dismiss);
+      document.addEventListener('click', dismiss);
+    }, 0);
+  }
+
+  // ── Double-click: new group on empty space ─────────────────────────────────
+
+  _onTlDblClick(e) {
+    if (e.target !== e.currentTarget && e.target.closest?.('.edit-seg')) return;
+
+    const tl = e.currentTarget;
+    const tlRect = tl.getBoundingClientRect();
+    const clickMins = Math.round(((e.clientX - tlRect.left) / tlRect.width) * 1440 / 10) * 10;
+
+    const groups = this._editGroups;
+    const prevEnd   = groups.reduce((mx, g) => g.endMins   <= clickMins ? Math.max(mx, g.endMins)   : mx, 0);
+    const nextStart = groups.reduce((mn, g) => g.startMins >  clickMins ? Math.min(mn, g.startMins) : mn, 1440);
+
+    if (nextStart - prevEnd < 20) return;
+
+    const startMins = Math.max(prevEnd, Math.min(clickMins, nextStart - 10));
+    const endMins   = Math.min(startMins + 60, nextStart);
+
+    groups.push({ startMins, endMins, enable: 1, workMode: 'SelfUse', minSocOnGrid: 10, fdSoc: 90, fdPwr: 0, maxSoc: 100 });
+    groups.sort((a, b) => a.startMins - b.startMins);
+    this._renderModal();
+  }
+
+  // ── Save ──────────────────────────────────────────────────────────────────
+
+  async _saveSchedule() {
+    const dlg      = this._dialog;
+    const saveBtn  = dlg.querySelector('.save-btn');
+    const spinner  = dlg.querySelector('.spinner');
+    const errEl    = dlg.querySelector('.modal-error');
+
+    saveBtn.disabled     = true;
+    spinner.style.display = 'inline';
+    errEl.textContent    = '';
+
+    const groups = this._editGroups.map(g => ({
+      enable:       g.enable,
+      startHour:    Math.floor(g.startMins / 60),
+      startMinute:  g.startMins % 60,
+      endHour:      Math.floor(g.endMins / 60),
+      endMinute:    g.endMins % 60,
+      workMode:     g.workMode,
+      minSocOnGrid: g.minSocOnGrid,
+      fdSoc:        g.fdSoc,
+      fdPwr:        g.fdPwr,
+      maxSoc:       g.maxSoc ?? 100,
+    }));
+
+    try {
+      await this._hass.connection.sendMessagePromise({
+        type: 'foxess/save_schedule',
+        deviceSN: this._deviceSN,
+        groups,
+      });
+      dlg.close();
+    } catch (err) {
+      errEl.textContent = err.message || 'Save failed — please try again.';
+    } finally {
+      saveBtn.disabled     = false;
+      spinner.style.display = 'none';
+    }
   }
 }
 

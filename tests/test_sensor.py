@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.foxess.sensor import (
+    _FOXESS_DEVICES_KEY,
     FetchResult,
     FoxESSBatMinSoC,
     FoxESSBatMinSoConGrid,
@@ -16,7 +17,10 @@ from custom_components.foxess.sensor import (
     FoxESSReactivePower,
     FoxESSResidualEnergy,
     FoxESSRunningState,
+    FoxESSSchedulerGroups,
+    _ws_save_schedule,
     getReportDailyGeneration,
+    setSchedulerSegments,
 )
 import pytest
 
@@ -444,3 +448,195 @@ class TestFoxESSBatMinSoConGrid:
     def test_returns_none_when_offline(self) -> None:
         """Returns None when the inverter is offline."""
         assert self._make({"online": False, "battery": {"minSocOnGrid": 20}}).native_value is None
+
+
+# ---------------------------------------------------------------------------
+# FoxESSSchedulerGroups
+# ---------------------------------------------------------------------------
+
+
+class TestFoxESSSchedulerGroups:
+    """Tests for FoxESSSchedulerGroups."""
+
+    _GROUP = {"enable": 1, "startHour": 0, "startMinute": 0, "endHour": 1, "endMinute": 0,
+              "workMode": "SelfUse", "minSocOnGrid": 10, "fdSoc": 90, "fdPwr": 0, "maxSoc": 100}
+
+    def _make(self, groups: list, device_sn: str = "SN1") -> FoxESSSchedulerGroups:
+        data = {"scheduler": {"groups": groups}}
+        return FoxESSSchedulerGroups(_coordinator(data), "Inverter", "DEV01", device_sn)
+
+    def test_native_value_is_group_count(self) -> None:
+        """native_value returns the number of groups."""
+        assert self._make([self._GROUP, self._GROUP]).native_value == 2
+
+    def test_native_value_zero_when_empty(self) -> None:
+        """native_value returns 0 when no groups are configured."""
+        assert self._make([]).native_value == 0
+
+    def test_groups_in_attributes(self) -> None:
+        """extra_state_attributes includes the full groups list."""
+        attrs = self._make([self._GROUP]).extra_state_attributes
+        assert attrs["groups"] == [self._GROUP]
+
+    def test_device_sn_in_attributes(self) -> None:
+        """extra_state_attributes includes device_sn."""
+        attrs = self._make([self._GROUP], device_sn="ABC123").extra_state_attributes
+        assert attrs["device_sn"] == "ABC123"
+
+    def test_device_sn_defaults_to_empty_string(self) -> None:
+        """device_sn defaults to empty string when not provided."""
+        data = {"scheduler": {"groups": [self._GROUP]}}
+        entity = FoxESSSchedulerGroups(_coordinator(data), "Inv", "DEV")
+        assert entity.extra_state_attributes["device_sn"] == ""
+
+
+# ---------------------------------------------------------------------------
+# setSchedulerSegments — write function
+# ---------------------------------------------------------------------------
+
+
+def _aio_session(response_data: dict) -> MagicMock:
+    """Return a mock aiohttp session that yields the given JSON."""
+    resp = MagicMock()
+    resp.__aenter__ = AsyncMock(return_value=resp)
+    resp.__aexit__ = AsyncMock(return_value=False)
+    resp.json = AsyncMock(return_value=response_data)
+    session = MagicMock()
+    session.post = MagicMock(return_value=resp)
+    return session
+
+
+def _aio_session_raises(exc: Exception) -> MagicMock:
+    """Return a mock aiohttp session whose post() raises the given exception."""
+    session = MagicMock()
+    session.post = MagicMock(side_effect=exc)
+    return session
+
+
+@pytest.mark.asyncio
+class TestSetSchedulerSegments:
+    """Tests for setSchedulerSegments."""
+
+    _GROUPS = [{"enable": 1, "startHour": 0, "startMinute": 0, "endHour": 6, "endMinute": 0,
+                "workMode": "SelfUse", "minSocOnGrid": 10, "fdSoc": 90, "fdPwr": 0, "maxSoc": 100}]
+
+    async def _call(self, session: MagicMock) -> FetchResult:
+        with (
+            patch("custom_components.foxess.sensor.waitforAPI", new_callable=AsyncMock),
+            patch("custom_components.foxess.sensor.GetAuth"),
+            patch("custom_components.foxess.sensor.async_get_clientsession", return_value=session),
+        ):
+            return await setSchedulerSegments(MagicMock(), "SN1", "api-key", self._GROUPS)
+
+    async def test_ok_on_errno_zero(self) -> None:
+        """Returns OK when API responds with errno 0."""
+        result = await self._call(_aio_session({"errno": 0, "msg": "success"}))
+        assert result is FetchResult.OK
+
+    async def test_auth_failed_on_errno_40256(self) -> None:
+        """Returns AUTH_FAILED when API returns the invalid-key errno."""
+        result = await self._call(_aio_session({"errno": 40256, "msg": "auth error"}))
+        assert result is FetchResult.AUTH_FAILED
+
+    async def test_error_on_non_zero_errno(self) -> None:
+        """Returns ERROR on a generic non-zero errno."""
+        result = await self._call(_aio_session({"errno": 40001, "msg": "error"}))
+        assert result is FetchResult.ERROR
+
+    async def test_error_on_network_exception(self) -> None:
+        """Returns ERROR when the HTTP call raises an exception."""
+        result = await self._call(_aio_session_raises(OSError("connection refused")))
+        assert result is FetchResult.ERROR
+
+
+# ---------------------------------------------------------------------------
+# _ws_save_schedule — WebSocket handler
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestWsSaveSchedule:
+    """Tests for the foxess/save_schedule WebSocket handler."""
+
+    _GROUPS = [{"enable": 1, "startHour": 0, "startMinute": 0, "endHour": 6, "endMinute": 0,
+                "workMode": "SelfUse", "minSocOnGrid": 10, "fdSoc": 90, "fdPwr": 0, "maxSoc": 100}]
+
+    def _make_hass(self, device_sn: str | None = "SN1") -> MagicMock:
+        hass = MagicMock()
+        hass.data = (
+            {_FOXESS_DEVICES_KEY: {device_sn: {"apiKey": "test-key"}}}
+            if device_sn
+            else {}
+        )
+        return hass
+
+    def _make_connection(self) -> MagicMock:
+        conn = MagicMock()
+        conn.send_result = MagicMock()
+        conn.send_error = MagicMock()
+        return conn
+
+    async def test_unknown_device_sends_not_found_error(self) -> None:
+        """Handler sends ERR_NOT_FOUND when deviceSN is not registered."""
+        hass = self._make_hass(device_sn=None)
+        conn = self._make_connection()
+        msg = {"id": 7, "type": "foxess/save_schedule", "deviceSN": "UNKNOWN", "groups": self._GROUPS}
+
+        await _ws_save_schedule.__wrapped__(hass, conn, msg)
+
+        conn.send_error.assert_called_once()
+        args = conn.send_error.call_args[0]
+        assert args[0] == 7
+        assert "not_found" in args[1]
+
+    async def test_success_sends_result(self) -> None:
+        """Handler sends send_result when setSchedulerSegments returns OK."""
+        hass = self._make_hass()
+        conn = self._make_connection()
+        msg = {"id": 3, "type": "foxess/save_schedule", "deviceSN": "SN1", "groups": self._GROUPS}
+
+        with patch(
+            "custom_components.foxess.sensor.setSchedulerSegments",
+            new_callable=AsyncMock,
+            return_value=FetchResult.OK,
+        ):
+            await _ws_save_schedule.__wrapped__(hass, conn, msg)
+
+        conn.send_result.assert_called_once_with(3, {"ok": True})
+        conn.send_error.assert_not_called()
+
+    async def test_auth_failure_sends_unauthorized(self) -> None:
+        """Handler sends ERR_UNAUTHORIZED when setSchedulerSegments returns AUTH_FAILED."""
+        hass = self._make_hass()
+        conn = self._make_connection()
+        msg = {"id": 5, "type": "foxess/save_schedule", "deviceSN": "SN1", "groups": self._GROUPS}
+
+        with patch(
+            "custom_components.foxess.sensor.setSchedulerSegments",
+            new_callable=AsyncMock,
+            return_value=FetchResult.AUTH_FAILED,
+        ):
+            await _ws_save_schedule.__wrapped__(hass, conn, msg)
+
+        conn.send_error.assert_called_once()
+        args = conn.send_error.call_args[0]
+        assert args[0] == 5
+        assert "unauthorized" in args[1]
+
+    async def test_error_sends_unknown_error(self) -> None:
+        """Handler sends ERR_UNKNOWN_ERROR when setSchedulerSegments returns ERROR."""
+        hass = self._make_hass()
+        conn = self._make_connection()
+        msg = {"id": 9, "type": "foxess/save_schedule", "deviceSN": "SN1", "groups": self._GROUPS}
+
+        with patch(
+            "custom_components.foxess.sensor.setSchedulerSegments",
+            new_callable=AsyncMock,
+            return_value=FetchResult.ERROR,
+        ):
+            await _ws_save_schedule.__wrapped__(hass, conn, msg)
+
+        conn.send_error.assert_called_once()
+        args = conn.send_error.call_args[0]
+        assert args[0] == 9
+        assert "unknown_error" in args[1]
