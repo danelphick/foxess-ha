@@ -16,6 +16,7 @@ class FoxESSSchedulerCard extends HTMLElement {
     this._drag = null;
     this._zoom = 1.0;
     this._tlScrollLeft = 0;
+    this._edgeScrollId = null;
   }
 
   set hass(hass) {
@@ -810,49 +811,23 @@ class FoxESSSchedulerCard extends HTMLElement {
           : groups[adjacentIdx].endMins - 10)
       : (edge === 'left' ? 0 : 1440);
 
-    this._drag = { groupIdx, edge, adjacentIdx, noShiftBound, shiftBound };
+    this._drag = { groupIdx, edge, adjacentIdx, noShiftBound, shiftBound, lastClientX: e.clientX, lastShiftKey: e.shiftKey };
     handle.setPointerCapture(e.pointerId);
     handle.addEventListener('pointermove', this._onEdgeDragMove);
     handle.addEventListener('pointerup', this._onEdgeDragEnd);
+    this._startEdgeScrollLoop();
   }
 
   _onEdgeDragMove = (e) => {
     if (!this._drag) return;
-    const { groupIdx, edge, adjacentIdx, noShiftBound, shiftBound } = this._drag;
-    const groups = this._editGroups;
-    const g = groups[groupIdx];
-
-    const tl = this._dialog.querySelector('.edit-tl');
-    const tlRect = tl.getBoundingClientRect();
-    const rawMins = Math.round(((e.clientX - tlRect.left + tl.scrollLeft) / (tlRect.width * this._zoom)) * 1440 / 10) * 10;
-    const useShift = e.shiftKey && adjacentIdx !== null;
-    const bound = useShift ? shiftBound : noShiftBound;
-
-    let newMins;
-    if (edge === 'left') {
-      newMins = Math.max(bound, Math.min(g.endMins - 10, rawMins));
-      if (useShift) {
-        groups[adjacentIdx].endMins = newMins;
-        this._updateSegStyle(adjacentIdx);
-        this._updateTableRowTimes(adjacentIdx);
-      }
-      g.startMins = newMins;
-    } else {
-      newMins = Math.min(bound, Math.max(g.startMins + 10, rawMins));
-      if (useShift) {
-        groups[adjacentIdx].startMins = newMins;
-        this._updateSegStyle(adjacentIdx);
-        this._updateTableRowTimes(adjacentIdx);
-      }
-      g.endMins = newMins;
-    }
-
-    this._updateSegStyle(groupIdx);
-    this._updateTableRowTimes(groupIdx);
+    this._drag.lastClientX = e.clientX;
+    this._drag.lastShiftKey = e.shiftKey;
+    this._applyEdgeDragPos(e.clientX, e.shiftKey);
   }
 
   _onEdgeDragEnd = (e) => {
     if (!this._drag) return;
+    this._stopEdgeScrollLoop();
     const handle = e.currentTarget;
     handle.releasePointerCapture(e.pointerId);
     handle.removeEventListener('pointermove', this._onEdgeDragMove);
@@ -893,47 +868,15 @@ class FoxESSSchedulerCard extends HTMLElement {
       // fall through to process the first move frame
     }
     if (this._drag.type !== 'move') return;
-
-    const { groupIdx, duration, mouseOffsetMins,
-            leftAdjIdx, rightAdjIdx,
-            noShiftMinStart, noShiftMaxStart, shiftMinStart, shiftMaxStart } = this._drag;
-    const groups = this._editGroups;
-    const g = groups[groupIdx];
-
-    const tl = this._dialog.querySelector('.edit-tl');
-    const tlRect = tl.getBoundingClientRect();
-    const rawMins = ((e.clientX - tlRect.left + tl.scrollLeft) / (tlRect.width * this._zoom)) * 1440;
-    const newStart = Math.max(
-      e.shiftKey ? shiftMinStart : noShiftMinStart,
-      Math.min(
-        e.shiftKey ? shiftMaxStart : noShiftMaxStart,
-        Math.round((rawMins - mouseOffsetMins) / 10) * 10
-      )
-    );
-    const newEnd = newStart + duration;
-
-    g.startMins = newStart;
-    g.endMins = newEnd;
-    this._updateSegStyle(groupIdx);
-    this._updateTableRowTimes(groupIdx);
-
-    if (e.shiftKey) {
-      if (leftAdjIdx !== null) {
-        groups[leftAdjIdx].endMins = newStart;
-        this._updateSegStyle(leftAdjIdx);
-        this._updateTableRowTimes(leftAdjIdx);
-      }
-      if (rightAdjIdx !== null) {
-        groups[rightAdjIdx].startMins = newEnd;
-        this._updateSegStyle(rightAdjIdx);
-        this._updateTableRowTimes(rightAdjIdx);
-      }
-    }
+    this._drag.lastClientX = e.clientX;
+    this._drag.lastShiftKey = e.shiftKey;
+    this._applySegMoveDragPos(e.clientX, e.shiftKey);
   }
 
   _onSegBodyUp = (e) => {
     if (!this._drag) return;
     clearTimeout(this._drag.lpTimer);
+    this._stopEdgeScrollLoop();
     const { el } = this._drag;
     el.releasePointerCapture(e.pointerId);
     el.removeEventListener('pointermove', this._onSegBodyMove);
@@ -981,8 +924,102 @@ class FoxESSSchedulerCard extends HTMLElement {
       leftAdjIdx, rightAdjIdx,
       noShiftMinStart, noShiftMaxStart,
       shiftMinStart, shiftMaxStart,
+      lastClientX: e.clientX,
+      lastShiftKey: e.shiftKey,
     });
     this._dialog.querySelector('.dlg-inner')?.classList.add('seg-dragging');
+    this._startEdgeScrollLoop();
+  }
+
+  _applyEdgeDragPos(clientX, shiftKey) {
+    const { groupIdx, edge, adjacentIdx, noShiftBound, shiftBound } = this._drag;
+    const groups = this._editGroups;
+    const g = groups[groupIdx];
+    const tl = this._dialog.querySelector('.edit-tl');
+    const tlRect = tl.getBoundingClientRect();
+    const rawMins = Math.round(((clientX - tlRect.left + tl.scrollLeft) / (tlRect.width * this._zoom)) * 1440 / 10) * 10;
+    const useShift = shiftKey && adjacentIdx !== null;
+    const bound = useShift ? shiftBound : noShiftBound;
+    let newMins;
+    if (edge === 'left') {
+      newMins = Math.max(bound, Math.min(g.endMins - 10, rawMins));
+      if (useShift) { groups[adjacentIdx].endMins = newMins; this._updateSegStyle(adjacentIdx); this._updateTableRowTimes(adjacentIdx); }
+      g.startMins = newMins;
+    } else {
+      newMins = Math.min(bound, Math.max(g.startMins + 10, rawMins));
+      if (useShift) { groups[adjacentIdx].startMins = newMins; this._updateSegStyle(adjacentIdx); this._updateTableRowTimes(adjacentIdx); }
+      g.endMins = newMins;
+    }
+    this._updateSegStyle(groupIdx);
+    this._updateTableRowTimes(groupIdx);
+  }
+
+  _applySegMoveDragPos(clientX, shiftKey) {
+    const { groupIdx, duration, mouseOffsetMins,
+            leftAdjIdx, rightAdjIdx,
+            noShiftMinStart, noShiftMaxStart, shiftMinStart, shiftMaxStart } = this._drag;
+    const groups = this._editGroups;
+    const g = groups[groupIdx];
+    const tl = this._dialog.querySelector('.edit-tl');
+    const tlRect = tl.getBoundingClientRect();
+    const rawMins = ((clientX - tlRect.left + tl.scrollLeft) / (tlRect.width * this._zoom)) * 1440;
+    const newStart = Math.max(
+      shiftKey ? shiftMinStart : noShiftMinStart,
+      Math.min(shiftKey ? shiftMaxStart : noShiftMaxStart, Math.round((rawMins - mouseOffsetMins) / 10) * 10)
+    );
+    const newEnd = newStart + duration;
+    g.startMins = newStart;
+    g.endMins = newEnd;
+    this._updateSegStyle(groupIdx);
+    this._updateTableRowTimes(groupIdx);
+    if (shiftKey) {
+      if (leftAdjIdx !== null) { groups[leftAdjIdx].endMins = newStart; this._updateSegStyle(leftAdjIdx); this._updateTableRowTimes(leftAdjIdx); }
+      if (rightAdjIdx !== null) { groups[rightAdjIdx].startMins = newEnd; this._updateSegStyle(rightAdjIdx); this._updateTableRowTimes(rightAdjIdx); }
+    }
+  }
+
+  _startEdgeScrollLoop() {
+    if (this._edgeScrollId !== null) return;
+    const ZONE = 50;
+    const tick = () => {
+      if (!this._drag) { this._edgeScrollId = null; return; }
+      const tl = this._dialog?.querySelector('.edit-tl');
+      if (!tl) { this._edgeScrollId = null; return; }
+
+      const { lastClientX, lastShiftKey } = this._drag;
+      const tlRect = tl.getBoundingClientRect();
+      const distLeft  = lastClientX - tlRect.left;
+      const distRight = tlRect.right - lastClientX;
+
+      let scrollDelta = 0;
+      if (distLeft  < ZONE) scrollDelta = -(1 - Math.max(0, distLeft)  / ZONE) * 8;
+      else if (distRight < ZONE) scrollDelta =  (1 - Math.max(0, distRight) / ZONE) * 8;
+
+      if (scrollDelta !== 0) {
+        const maxScroll = tl.scrollWidth - tl.clientWidth;
+        if (maxScroll > 0) {
+          const newScroll = Math.max(0, Math.min(maxScroll, tl.scrollLeft + scrollDelta));
+          if (Math.abs(newScroll - tl.scrollLeft) >= 0.5) {
+            tl.scrollLeft = newScroll;
+            this._tlScrollLeft = newScroll;
+            const lo = this._dialog?.querySelector('.tl-labels-outer');
+            if (lo) lo.scrollLeft = newScroll;
+            if (this._drag.edge !== undefined) this._applyEdgeDragPos(lastClientX, lastShiftKey ?? false);
+            else if (this._drag.type === 'move') this._applySegMoveDragPos(lastClientX, lastShiftKey ?? false);
+          }
+        }
+      }
+
+      this._edgeScrollId = requestAnimationFrame(tick);
+    };
+    this._edgeScrollId = requestAnimationFrame(tick);
+  }
+
+  _stopEdgeScrollLoop() {
+    if (this._edgeScrollId !== null) {
+      cancelAnimationFrame(this._edgeScrollId);
+      this._edgeScrollId = null;
+    }
   }
 
   _updateSegStyle(idx) {
