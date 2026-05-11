@@ -445,6 +445,12 @@ async def _ws_save_schedule(
         hass, device_sn, devices[device_sn]["apiKey"], msg["groups"]
     )
     if result is FetchResult.OK:
+        device_data = devices[device_sn]
+        all_data = device_data.get("allData")
+        coord = device_data.get("coordinator")
+        if all_data is not None and coord is not None:
+            all_data["scheduler"]["groups"] = msg["groups"]
+            coord.async_set_updated_data(all_data)
         connection.send_result(msg["id"], {"ok": True})
     elif result is FetchResult.AUTH_FAILED:
         connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, api_msg)
@@ -504,7 +510,8 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
     allData["addressbook"]["hasBattery"] = False  # assume no battery is fitted for now
     allData["addressbook"]["status"] = "3"  # assume inverter is off-line for now
 
-    hass.data.setdefault(_FOXESS_DEVICES_KEY, {})[devicesn] = {"apiKey": apiKey}
+    device_entry: dict = {"apiKey": apiKey}
+    hass.data.setdefault(_FOXESS_DEVICES_KEY, {})[devicesn] = device_entry
 
     async def _update_callback() -> dict:
         return await _async_update_data(
@@ -529,6 +536,9 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
         update_interval=SCAN_INTERVAL,
         config_entry=config_entry,
     )
+
+    device_entry["allData"] = allData
+    device_entry["coordinator"] = coordinator
 
     await coordinator.async_refresh()
 
