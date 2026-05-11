@@ -88,10 +88,10 @@ class FoxESSSchedulerCard extends HTMLElement {
         start: `${String(g.startHour).padStart(2, '0')}:${String(g.startMinute).padStart(2, '0')}`,
         end: `${String(g.endHour).padStart(2, '0')}:${String(g.endMinute).padStart(2, '0')}`,
         enabled: !!g.enable,
-        min_soc_on_grid: g.minSocOnGrid,
-        fd_soc: g.fdSoc,
-        fd_pwr_w: g.fdPwr,
-        max_soc: g.maxSoc ?? 100,
+        min_soc_on_grid: g.extraParam.minSocOnGrid,
+        fd_soc:          g.extraParam.fdSoc,
+        fd_pwr_w:        g.extraParam.fdPwr,
+        max_soc:         g.extraParam.maxSoc ?? 100,
         startMins, endMins, isActive,
         cfg: WORK_MODES[g.workMode] ?? null,
       };
@@ -1142,10 +1142,12 @@ class FoxESSSchedulerCard extends HTMLElement {
       endHour:      Math.floor(g.endMins / 60),
       endMinute:    g.endMins % 60,
       workMode:     g.workMode,
-      minSocOnGrid: g.minSocOnGrid,
-      fdSoc:        g.fdSoc,
-      fdPwr:        g.fdPwr,
-      maxSoc:       g.maxSoc ?? 100,
+      extraParam: {
+        minSocOnGrid: g.minSocOnGrid,
+        fdSoc:        g.fdSoc,
+        fdPwr:        g.fdPwr,
+        maxSoc:       g.maxSoc ?? 100,
+      },
     }));
 
     try {

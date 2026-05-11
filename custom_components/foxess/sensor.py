@@ -65,8 +65,8 @@ _ENDPOINT_OA_DEVICE_VARIABLES = "/op/v0/device/real/query"
 _ENDPOINT_OA_DEVICE_VARIABLES_V1 = "/op/v1/device/real/query"
 _ENDPOINT_OA_DAILY_GENERATION = "/op/v0/device/generation?sn="
 _ENDPOINT_OA_SCHEDULER_FLAG = "/op/v0/device/scheduler/get/flag"
-_ENDPOINT_OA_SCHEDULER_SEGMENTS = "/op/v1/device/scheduler/get"
-_ENDPOINT_OA_SCHEDULER_ENABLE = "/op/v1/device/scheduler/enable"
+_ENDPOINT_OA_SCHEDULER_SEGMENTS = "/op/v2/device/scheduler/get"
+_ENDPOINT_OA_SCHEDULER_ENABLE = "/op/v2/device/scheduler/enable"
 _FOXESS_DEVICES_KEY = "foxess_devices"
 _CARD_STATIC_BASE = "/foxess_ha_static"
 _CARD_JS_PREFIX = f"{_CARD_STATIC_BASE}/scheduler_card.js"
@@ -1078,7 +1078,7 @@ async def getSchedulerSegments(hass, allData, devicesn, apiKey):
 async def setSchedulerSegments(
     hass: HomeAssistant, devicesn: str, apiKey: str, groups: list
 ) -> tuple[FetchResult, str]:
-    """POST updated schedule groups to FoxESS Cloud /op/v1/device/scheduler/enable."""
+    """POST updated schedule groups to FoxESS Cloud /op/v2/device/scheduler/enable."""
     await waitforAPI()
     path = _ENDPOINT_OA_SCHEDULER_ENABLE
     headerData = GetAuth().get_signature(token=apiKey, path=path)
