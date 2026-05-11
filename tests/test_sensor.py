@@ -526,7 +526,8 @@ class TestSetSchedulerSegments:
             patch("custom_components.foxess.sensor.GetAuth"),
             patch("custom_components.foxess.sensor.async_get_clientsession", return_value=session),
         ):
-            return await setSchedulerSegments(MagicMock(), "SN1", "api-key", self._GROUPS)
+            result, _ = await setSchedulerSegments(MagicMock(), "SN1", "api-key", self._GROUPS)
+            return result
 
     async def test_ok_on_errno_zero(self) -> None:
         """Returns OK when API responds with errno 0."""
@@ -598,7 +599,7 @@ class TestWsSaveSchedule:
         with patch(
             "custom_components.foxess.sensor.setSchedulerSegments",
             new_callable=AsyncMock,
-            return_value=FetchResult.OK,
+            return_value=(FetchResult.OK, ""),
         ):
             await _ws_save_schedule.__wrapped__(hass, conn, msg)
 
@@ -614,7 +615,7 @@ class TestWsSaveSchedule:
         with patch(
             "custom_components.foxess.sensor.setSchedulerSegments",
             new_callable=AsyncMock,
-            return_value=FetchResult.AUTH_FAILED,
+            return_value=(FetchResult.AUTH_FAILED, "auth error"),
         ):
             await _ws_save_schedule.__wrapped__(hass, conn, msg)
 
@@ -632,7 +633,7 @@ class TestWsSaveSchedule:
         with patch(
             "custom_components.foxess.sensor.setSchedulerSegments",
             new_callable=AsyncMock,
-            return_value=FetchResult.ERROR,
+            return_value=(FetchResult.ERROR, "error"),
         ):
             await _ws_save_schedule.__wrapped__(hass, conn, msg)
 
