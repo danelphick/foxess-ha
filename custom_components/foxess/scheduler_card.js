@@ -484,7 +484,8 @@ class FoxESSSchedulerCard extends HTMLElement {
         .remaining-sep { padding:5px 0 1px; border-top:1px solid var(--divider-color,#e0e0e0); }
         .del-btn { background:none; border:none; cursor:pointer; padding:2px 4px; color:var(--error-color,#f44336); opacity:.6; border-radius:4px; display:flex; align-items:center; }
         .del-btn:hover { opacity:1; background:rgba(244,67,54,.1); }
-        .tpl-open-btn { background:var(--secondary-background-color,#f0f0f0); color:var(--primary-text-color,#333); font-size:.8em; padding:5px 12px; }
+        .tpl-open-btn, .tpl-load-open-btn { background:var(--secondary-background-color,#f0f0f0); color:var(--primary-text-color,#333); font-size:.8em; padding:5px 12px; }
+        .tpl-load-error { font-size:.8em; color:var(--error-color,#cf6679); display:block; min-height:1.1em; margin-top:4px; }
         .tpl-form { border-top:1px solid var(--divider-color,#e0e0e0); padding-top:10px; }
         .tpl-form-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .tpl-name-input { flex:1; min-width:120px; padding:5px 8px; border-radius:4px; border:1px solid var(--divider-color,#ccc); background:var(--secondary-background-color,#f5f5f5); color:inherit; font-size:.9em; }
@@ -520,6 +521,7 @@ class FoxESSSchedulerCard extends HTMLElement {
           <span class="modal-error"></span>
           <div class="btn-row">
             <button class="action-btn tpl-open-btn">Save as template…</button>
+            <button class="action-btn tpl-load-open-btn">Load template…</button>
             <span style="flex:1"></span>
             <button class="action-btn cancel-btn">Cancel</button>
             <button class="action-btn save-btn">Save</button>
@@ -535,6 +537,16 @@ class FoxESSSchedulerCard extends HTMLElement {
               <button class="action-btn tpl-cancel-btn">Cancel</button>
             </div>
             <span class="tpl-error"></span>
+          </div>
+          <div class="tpl-load-form" style="display:none; margin-top:10px;">
+            <div class="tpl-form-row">
+              <select class="tpl-load-sel">
+                <option value="" disabled selected>Select template…</option>
+              </select>
+              <button class="action-btn tpl-load-confirm-btn">Load</button>
+              <button class="action-btn tpl-load-cancel-btn">Cancel</button>
+            </div>
+            <span class="tpl-load-error"></span>
           </div>
         </div>
       </div>`;
@@ -597,6 +609,36 @@ class FoxESSSchedulerCard extends HTMLElement {
       } catch (err) {
         tplErrEl.textContent = err.message || 'Save failed';
       }
+    });
+
+    const tplLoadForm      = dlg.querySelector('.tpl-load-form');
+    const tplLoadOpenBtn   = dlg.querySelector('.tpl-load-open-btn');
+    const tplLoadSel       = dlg.querySelector('.tpl-load-sel');
+    const tplLoadErrEl     = dlg.querySelector('.tpl-load-error');
+
+    tplLoadOpenBtn.addEventListener('click', () => {
+      tplLoadSel.innerHTML = '<option value="" disabled selected>Select template…</option>'
+        + this._templates.map((t, i) => `<option value="${i}">${t.name}</option>`).join('');
+      tplLoadErrEl.textContent = '';
+      const opening = tplLoadForm.style.display === 'none';
+      tplForm.style.display = 'none';
+      tplLoadForm.style.display = opening ? '' : 'none';
+    });
+
+    tplOpenBtn.addEventListener('click', () => {
+      tplLoadForm.style.display = 'none';
+    }, { capture: true });
+
+    dlg.querySelector('.tpl-load-cancel-btn').addEventListener('click', () => {
+      tplLoadForm.style.display = 'none';
+    });
+
+    dlg.querySelector('.tpl-load-confirm-btn').addEventListener('click', () => {
+      if (tplLoadSel.value === '') { tplLoadErrEl.textContent = 'Select a template first'; return; }
+      const tpl = this._templates[+tplLoadSel.value];
+      if (!tpl) return;
+      this._editGroups = tpl.groups.map(g => ({ ...g }));
+      this._renderModal();
     });
 
     let hoverIdx = null;

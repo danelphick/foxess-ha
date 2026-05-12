@@ -106,11 +106,67 @@ describe('Save as template in edit modal', () => {
     expect(card.shadowRoot.querySelector('.tpl-open-btn')).not.toBeNull();
   });
 
+  it('tpl-load-open-btn is present in the edit modal footer', () => {
+    const card = mountCard(makeHass());
+    openEditModal(card);
+    expect(card.shadowRoot.querySelector('.tpl-load-open-btn')).not.toBeNull();
+  });
+
   it('tpl-form is hidden initially', () => {
     const card = mountCard(makeHass());
     openEditModal(card);
     const form = card.shadowRoot.querySelector('.tpl-form');
     expect(form.style.display).toBe('none');
+  });
+
+  it('tpl-load-form is hidden initially', () => {
+    const card = mountCard(makeHass());
+    openEditModal(card);
+    expect(card.shadowRoot.querySelector('.tpl-load-form').style.display).toBe('none');
+  });
+
+  it('tpl-load-open-btn click reveals the load form', async () => {
+    const templates = [{ name: 'Morning', groups: TEMPLATE_GROUPS }];
+    const card = mountCard(makeHass({ send: vi.fn().mockImplementation(msg =>
+      Promise.resolve(msg.type === 'foxess/get_templates' ? { templates } : { ok: true })
+    ), templates }));
+    await tick();
+    openEditModal(card);
+    card.shadowRoot.querySelector('.tpl-load-open-btn').click();
+    expect(card.shadowRoot.querySelector('.tpl-load-form').style.display).not.toBe('none');
+  });
+
+  it('tpl-load-cancel-btn hides the load form', async () => {
+    const templates = [{ name: 'Morning', groups: TEMPLATE_GROUPS }];
+    const card = mountCard(makeHass({ templates }));
+    await tick();
+    openEditModal(card);
+    card.shadowRoot.querySelector('.tpl-load-open-btn').click();
+    card.shadowRoot.querySelector('.tpl-load-cancel-btn').click();
+    expect(card.shadowRoot.querySelector('.tpl-load-form').style.display).toBe('none');
+  });
+
+  it('loading a template replaces edit groups and re-renders the modal', async () => {
+    const templates = [{ name: 'Morning', groups: TEMPLATE_GROUPS }];
+    const card = mountCard(makeHass({ send: vi.fn().mockImplementation(msg =>
+      Promise.resolve(msg.type === 'foxess/get_templates' ? { templates } : { ok: true })
+    ), templates }));
+    await tick();
+    openEditModal(card);
+    card.shadowRoot.querySelector('.tpl-load-open-btn').click();
+    const sel = card.shadowRoot.querySelector('.tpl-load-sel');
+    sel.value = '0';
+    card.shadowRoot.querySelector('.tpl-load-confirm-btn').click();
+    // Modal should still be open after load
+    expect(card.shadowRoot.querySelector('dialog').open).toBe(true);
+  });
+
+  it('load confirm shows error when no template selected', () => {
+    const card = mountCard(makeHass());
+    openEditModal(card);
+    card.shadowRoot.querySelector('.tpl-load-open-btn').click();
+    card.shadowRoot.querySelector('.tpl-load-confirm-btn').click();
+    expect(card.shadowRoot.querySelector('.tpl-load-error').textContent).toBeTruthy();
   });
 
   it('tpl-open-btn click reveals the template form', () => {
