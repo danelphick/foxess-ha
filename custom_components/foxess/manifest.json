@@ -3,7 +3,7 @@
   "name": "HA & FoxESSCloud integration",
   "codeowners": ["@macxq","@r-amado","@fozzieuk"],
   "config_flow": true,
-  "dependencies": ["rest"],
+  "dependencies": ["http", "lovelace", "rest"],
   "documentation": "https://github.com/macxq/foxess-ha",
   "iot_class": "local_polling",
   "issue_tracker":"https://github.com/macxq/foxess-ha/issues",
