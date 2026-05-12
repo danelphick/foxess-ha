@@ -64,7 +64,7 @@ _ENDPOINT_OA_DEVICE_DETAIL_V1 = "/op/v1/device/detail"
 _ENDPOINT_OA_DEVICE_VARIABLES = "/op/v0/device/real/query"
 _ENDPOINT_OA_DEVICE_VARIABLES_V1 = "/op/v1/device/real/query"
 _ENDPOINT_OA_DAILY_GENERATION = "/op/v0/device/generation?sn="
-_ENDPOINT_OA_SCHEDULER_FLAG = "/op/v0/device/scheduler/get/flag"
+_ENDPOINT_OA_SCHEDULER_SET_FLAG = "/op/v1/device/scheduler/set/flag"
 _ENDPOINT_OA_SCHEDULER_SEGMENTS = "/op/v2/device/scheduler/get"
 _ENDPOINT_OA_SCHEDULER_ENABLE = "/op/v2/device/scheduler/enable"
 _FOXESS_DEVICES_KEY = "foxess_devices"
@@ -234,8 +234,6 @@ async def _fetch_live_data(
     if tslice == 0:
         # read in battery settings if fitted at startup, then every 60 mins
         await getOABatterySettings(hass, allData, devicesn, apiKey)
-        await asyncio.sleep(1)  # OpenAPI demand
-        await getSchedulerFlag(hass, allData, devicesn, apiKey)
         await asyncio.sleep(1)  # OpenAPI demand
         await getSchedulerSegments(hass, allData, devicesn, apiKey)
         await asyncio.sleep(1)  # OpenAPI demand
@@ -450,6 +448,42 @@ async def _ws_save_schedule(
         coord = device_data.get("coordinator")
         if all_data is not None and coord is not None:
             all_data["scheduler"]["groups"] = msg["groups"]
+            coord.async_set_updated_data(all_data)
+        connection.send_result(msg["id"], {"ok": True})
+    elif result is FetchResult.AUTH_FAILED:
+        connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, api_msg)
+    else:
+        connection.send_error(
+            msg["id"],
+            websocket_api.ERR_UNKNOWN_ERROR,
+            "FoxESS Cloud returned an error: " + api_msg,
+        )
+
+
+@websocket_api.async_response
+async def _ws_set_scheduler_flag(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Handle foxess/set_scheduler_flag WebSocket command — enable or disable the scheduler."""
+    device_sn = msg["deviceSN"]
+    devices = hass.data.get(_FOXESS_DEVICES_KEY, {})
+    if device_sn not in devices:
+        connection.send_error(
+            msg["id"], websocket_api.ERR_NOT_FOUND, f"No FoxESS device {device_sn}"
+        )
+        return
+    enable = msg["enable"]
+    result, api_msg = await setSchedulerFlag(
+        hass, device_sn, devices[device_sn]["apiKey"], enable
+    )
+    if result is FetchResult.OK:
+        device_data = devices[device_sn]
+        all_data = device_data.get("allData")
+        coord = device_data.get("coordinator")
+        if all_data is not None and coord is not None:
+            all_data["scheduler"]["enabled"] = bool(enable)
             coord.async_set_updated_data(all_data)
         connection.send_result(msg["id"], {"ok": True})
     elif result is FetchResult.AUTH_FAILED:
@@ -729,6 +763,18 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                 }
             ),
         )
+        websocket_api.async_register_command(
+            hass,
+            "foxess/set_scheduler_flag",
+            _ws_set_scheduler_flag,
+            websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+                {
+                    vol.Required("type"): "foxess/set_scheduler_flag",
+                    vol.Required("deviceSN"): str,
+                    vol.Required("enable"): int,
+                }
+            ),
+        )
         hass.data[_ws_key] = True
 
     if hass.is_running:
@@ -991,50 +1037,6 @@ async def getOABatterySettings(hass, allData, devicesn, apiKey):
     return FetchResult.OK
 
 
-async def getSchedulerFlag(hass, allData, devicesn, apiKey):
-    """Fetch scheduler enable/disable state from FoxESS OpenAPI and populate allData['scheduler']['enabled']."""
-    await waitforAPI()
-
-    path = _ENDPOINT_OA_SCHEDULER_FLAG
-    headerData = GetAuth().get_signature(token=apiKey, path=path)
-
-    _LOGGER.debug("getSchedulerFlag fetch %s", path)
-
-    restSchedulerFlag = RestData(
-        hass,
-        METHOD_POST,
-        _ENDPOINT_OA_DOMAIN + path,
-        DEFAULT_ENCODING,
-        None,
-        headerData,
-        None,
-        '{"deviceSN":"' + devicesn + '"}',
-        DEFAULT_VERIFY_SSL,
-        SSLCipherList.PYTHON_DEFAULT,
-        DEFAULT_TIMEOUT,
-    )
-    await restSchedulerFlag.async_update()
-
-    if restSchedulerFlag.data is None or restSchedulerFlag.data == "":
-        _LOGGER.debug("Unable to get scheduler flag from FoxESS Cloud")
-        return FetchResult.ERROR
-
-    response = json.loads(restSchedulerFlag.data)
-    if response["errno"] == 0 and (
-        response["msg"] == "success" or response["msg"] == "Operation successful"
-    ):
-        _LOGGER.debug("Scheduler flag response: %s", response["result"])
-        allData["scheduler"]["enabled"] = bool(response["result"].get("enable", 0))
-        return FetchResult.OK
-
-    _LOGGER.debug("Scheduler flag bad response: %s", response)
-    return (
-        FetchResult.AUTH_FAILED
-        if response["errno"] in _AUTH_ERRNO
-        else FetchResult.ERROR
-    )
-
-
 async def getSchedulerSegments(hass, allData, devicesn, apiKey):
     """Fetch scheduler time segment groups from FoxESS OpenAPI and populate allData['scheduler']['groups']."""
     await waitforAPI()
@@ -1074,6 +1076,7 @@ async def getSchedulerSegments(hass, allData, devicesn, apiKey):
             )
             allData["scheduler"]["groups"] = []
         else:
+            allData["scheduler"]["enabled"] = bool(int(result.get("enable", 0)))
             allData["scheduler"]["groups"] = result.get("groups", [])
         return FetchResult.OK
 
@@ -1116,6 +1119,39 @@ async def setSchedulerSegments(
         FetchResult.AUTH_FAILED
         if data.get("errno") in _AUTH_ERRNO
         else FetchResult.ERROR,
+        api_msg,
+    )
+
+
+async def setSchedulerFlag(
+    hass: HomeAssistant, devicesn: str, apiKey: str, enable: int
+) -> tuple[FetchResult, str]:
+    """POST scheduler enable/disable flag to FoxESS Cloud /op/v1/device/scheduler/set/flag."""
+    await waitforAPI()
+    path = _ENDPOINT_OA_SCHEDULER_SET_FLAG
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+    session = async_get_clientsession(hass, verify_ssl=DEFAULT_VERIFY_SSL)
+    try:
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        async with session.post(
+            _ENDPOINT_OA_DOMAIN + path,
+            headers=headerData,
+            json={"deviceSN": devicesn, "enable": enable},
+            timeout=timeout,
+        ) as resp:
+            data = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("setSchedulerFlag: network error")
+        return FetchResult.ERROR, "Network error — please try again."
+
+    if data.get("errno") == 0:
+        _LOGGER.debug("setSchedulerFlag: success, enable=%s", enable)
+        return FetchResult.OK, ""
+
+    _LOGGER.error("setSchedulerFlag: bad response %s", data)
+    api_msg = data.get("msg") or "FoxESS Cloud returned an error."
+    return (
+        FetchResult.AUTH_FAILED if data.get("errno") in _AUTH_ERRNO else FetchResult.ERROR,
         api_msg,
     )
 

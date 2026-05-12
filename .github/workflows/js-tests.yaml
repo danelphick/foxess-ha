@@ -1,0 +1,36 @@
+name: JS Tests
+
+on:
+  push:
+    paths:
+      - 'custom_components/foxess/scheduler_card.js'
+      - 'tests/scheduler_card_toggle.test.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vitest.config.js'
+  pull_request:
+    paths:
+      - 'custom_components/foxess/scheduler_card.js'
+      - 'tests/scheduler_card_toggle.test.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vitest.config.js'
+
+jobs:
+  js-tests:
+    name: Vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:js

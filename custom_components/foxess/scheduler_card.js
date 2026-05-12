@@ -145,6 +145,9 @@ class FoxESSSchedulerCard extends HTMLElement {
         .status { font-size:.75em; font-weight:600; padding:2px 10px; border-radius:12px; text-transform:capitalize; border:1px solid; }
         .status-on  { background:#4caf5033; border-color:#4caf5099; }
         .status-off { background:#9e9e9e33; border-color:#9e9e9e99; }
+        .toggle-btn { cursor:pointer; font-family:inherit; }
+        .toggle-btn:hover:not(:disabled) { filter:brightness(0.88); }
+        .toggle-btn:disabled { cursor:wait; opacity:.6; }
         .edit-btn { font-size:.75em; padding:2px 10px; border-radius:12px; border:1px solid var(--primary-color,#03a9f4); background:transparent; cursor:pointer; }
         .edit-btn:hover { background:color-mix(in srgb,var(--primary-color,#03a9f4) 15%,transparent); }
         .tl { position:relative; height:24px; background:var(--divider-color,#e0e0e0); border-radius:5px; overflow:visible; margin-bottom:3px; }
@@ -168,7 +171,7 @@ class FoxESSSchedulerCard extends HTMLElement {
           <span class="title">FoxESS Scheduler</span>
           <div class="hdr-right">
             <button class="edit-btn" title="Edit schedule">Edit</button>
-            <span class="status ${statusCls}">${enabledState}</span>
+            <button class="status toggle-btn ${statusCls}" title="Toggle scheduler on/off">${enabledState}</button>
           </div>
         </div>
         <div class="tl">
@@ -196,6 +199,22 @@ class FoxESSSchedulerCard extends HTMLElement {
 
     root.querySelector('.edit-btn')?.addEventListener('click', () => {
       this._openEditModal(slotData);
+    });
+
+    root.querySelector('.toggle-btn')?.addEventListener('click', async (e) => {
+      if (!this._deviceSN) return;
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const newEnable = enabledState === 'enabled' ? 0 : 1;
+      try {
+        await this._hass.connection.sendMessagePromise({
+          type: 'foxess/set_scheduler_flag',
+          deviceSN: this._deviceSN,
+          enable: newEnable,
+        });
+      } catch (_err) {
+        btn.disabled = false;
+      }
     });
   }
 
