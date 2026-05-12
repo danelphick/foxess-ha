@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.foxess.sensor import (
     _FOXESS_DEVICES_KEY,
+    _FOXESS_TEMPLATES_STORE_KEY,
     FetchResult,
     FoxESSBatMinSoC,
     FoxESSBatMinSoConGrid,
@@ -18,7 +19,9 @@ from custom_components.foxess.sensor import (
     FoxESSResidualEnergy,
     FoxESSRunningState,
     FoxESSSchedulerGroups,
+    _ws_get_templates,
     _ws_save_schedule,
+    _ws_save_template,
     getReportDailyGeneration,
     setSchedulerSegments,
 )
@@ -641,3 +644,149 @@ class TestWsSaveSchedule:
         args = conn.send_error.call_args[0]
         assert args[0] == 9
         assert "unknown_error" in args[1]
+
+
+# ---------------------------------------------------------------------------
+# _ws_get_templates — WebSocket handler
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestWsGetTemplates:
+    """Tests for the foxess/get_templates WebSocket handler."""
+
+    def _make_store(self, data: dict | None) -> MagicMock:
+        store = MagicMock()
+        store.async_load = AsyncMock(return_value=data)
+        return store
+
+    def _make_hass(self, store_data: dict | None = None) -> MagicMock:
+        hass = MagicMock()
+        hass.data = {_FOXESS_TEMPLATES_STORE_KEY: self._make_store(store_data)}
+        return hass
+
+    def _make_connection(self) -> MagicMock:
+        conn = MagicMock()
+        conn.send_result = MagicMock()
+        conn.send_error = MagicMock()
+        return conn
+
+    async def test_returns_empty_list_when_store_is_empty(self) -> None:
+        """Returns an empty templates list when the store has no data."""
+        hass = self._make_hass(store_data=None)
+        conn = self._make_connection()
+        msg = {"id": 1, "type": "foxess/get_templates", "deviceSN": "SN1"}
+
+        await _ws_get_templates.__wrapped__(hass, conn, msg)
+
+        conn.send_result.assert_called_once_with(1, {"templates": []})
+
+    async def test_returns_empty_list_when_no_entry_for_device(self) -> None:
+        """Returns an empty templates list when the store has no entry for the device."""
+        hass = self._make_hass(store_data={"OTHER_SN": [{"name": "t1", "groups": []}]})
+        conn = self._make_connection()
+        msg = {"id": 2, "type": "foxess/get_templates", "deviceSN": "SN1"}
+
+        await _ws_get_templates.__wrapped__(hass, conn, msg)
+
+        conn.send_result.assert_called_once_with(2, {"templates": []})
+
+    async def test_returns_saved_templates_for_device(self) -> None:
+        """Returns the stored template list for the given device."""
+        templates = [{"name": "Morning", "groups": [{"workMode": "ForceCharge"}]}]
+        hass = self._make_hass(store_data={"SN1": templates})
+        conn = self._make_connection()
+        msg = {"id": 3, "type": "foxess/get_templates", "deviceSN": "SN1"}
+
+        await _ws_get_templates.__wrapped__(hass, conn, msg)
+
+        conn.send_result.assert_called_once_with(3, {"templates": templates})
+
+
+# ---------------------------------------------------------------------------
+# _ws_save_template — WebSocket handler
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestWsSaveTemplate:
+    """Tests for the foxess/save_template WebSocket handler."""
+
+    _GROUPS = [{"workMode": "ForceCharge", "startHour": 0, "startMinute": 0,
+                "endHour": 6, "endMinute": 0}]
+
+    def _make_store(self, data: dict | None = None) -> MagicMock:
+        store = MagicMock()
+        store.async_load = AsyncMock(return_value=data)
+        store.async_save = AsyncMock()
+        return store
+
+    def _make_hass(self, store: MagicMock) -> MagicMock:
+        hass = MagicMock()
+        hass.data = {_FOXESS_TEMPLATES_STORE_KEY: store}
+        return hass
+
+    def _make_connection(self) -> MagicMock:
+        conn = MagicMock()
+        conn.send_result = MagicMock()
+        conn.send_error = MagicMock()
+        return conn
+
+    async def test_saves_new_template(self) -> None:
+        """Saves a new template and calls send_result with ok."""
+        store = self._make_store(data=None)
+        hass = self._make_hass(store)
+        conn = self._make_connection()
+        msg = {"id": 1, "type": "foxess/save_template", "deviceSN": "SN1",
+               "name": "Morning", "groups": self._GROUPS}
+
+        await _ws_save_template.__wrapped__(hass, conn, msg)
+
+        conn.send_result.assert_called_once_with(1, {"ok": True})
+        saved = store.async_save.call_args[0][0]
+        assert saved == {"SN1": [{"name": "Morning", "groups": self._GROUPS}]}
+
+    async def test_overwrites_template_with_same_name(self) -> None:
+        """Overwrites an existing template rather than creating a duplicate."""
+        old_groups = [{"workMode": "SelfUse"}]
+        store = self._make_store(data={"SN1": [{"name": "Morning", "groups": old_groups}]})
+        hass = self._make_hass(store)
+        conn = self._make_connection()
+        msg = {"id": 2, "type": "foxess/save_template", "deviceSN": "SN1",
+               "name": "Morning", "groups": self._GROUPS}
+
+        await _ws_save_template.__wrapped__(hass, conn, msg)
+
+        conn.send_result.assert_called_once_with(2, {"ok": True})
+        saved = store.async_save.call_args[0][0]
+        assert len(saved["SN1"]) == 1
+        assert saved["SN1"][0]["groups"] == self._GROUPS
+
+    async def test_appends_template_with_new_name(self) -> None:
+        """Appends a second template when the name is different."""
+        existing = [{"name": "Morning", "groups": self._GROUPS}]
+        store = self._make_store(data={"SN1": existing})
+        hass = self._make_hass(store)
+        conn = self._make_connection()
+        msg = {"id": 3, "type": "foxess/save_template", "deviceSN": "SN1",
+               "name": "Evening", "groups": self._GROUPS}
+
+        await _ws_save_template.__wrapped__(hass, conn, msg)
+
+        saved = store.async_save.call_args[0][0]
+        assert len(saved["SN1"]) == 2
+        assert saved["SN1"][1]["name"] == "Evening"
+
+    async def test_does_not_affect_other_devices(self) -> None:
+        """Templates for other devices are preserved when saving."""
+        store = self._make_store(data={"OTHER": [{"name": "t", "groups": []}]})
+        hass = self._make_hass(store)
+        conn = self._make_connection()
+        msg = {"id": 4, "type": "foxess/save_template", "deviceSN": "SN1",
+               "name": "Morning", "groups": self._GROUPS}
+
+        await _ws_save_template.__wrapped__(hass, conn, msg)
+
+        saved = store.async_save.call_args[0][0]
+        assert "OTHER" in saved
+        assert saved["OTHER"] == [{"name": "t", "groups": []}]

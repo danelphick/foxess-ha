@@ -49,6 +49,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.icon import icon_for_battery_level
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -68,6 +69,9 @@ _ENDPOINT_OA_SCHEDULER_SET_FLAG = "/op/v1/device/scheduler/set/flag"
 _ENDPOINT_OA_SCHEDULER_SEGMENTS = "/op/v2/device/scheduler/get"
 _ENDPOINT_OA_SCHEDULER_ENABLE = "/op/v2/device/scheduler/enable"
 _FOXESS_DEVICES_KEY = "foxess_devices"
+_FOXESS_TEMPLATES_STORE_KEY = "foxess_templates_store"
+_TEMPLATES_STORAGE_KEY = "foxess.templates"
+_TEMPLATES_STORAGE_VERSION = 1
 _CARD_STATIC_BASE = "/foxess_ha_static"
 _CARD_JS_PREFIX = f"{_CARD_STATIC_BASE}/scheduler_card.js"
 
@@ -496,6 +500,39 @@ async def _ws_set_scheduler_flag(
         )
 
 
+@websocket_api.async_response
+async def _ws_get_templates(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Handle foxess/get_templates WebSocket command — return saved schedule templates."""
+    store = hass.data.get(_FOXESS_TEMPLATES_STORE_KEY)
+    data = (await store.async_load()) or {}
+    connection.send_result(msg["id"], {"templates": data.get(msg["deviceSN"], [])})
+
+
+@websocket_api.async_response
+async def _ws_save_template(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Handle foxess/save_template WebSocket command — persist a named schedule template."""
+    store = hass.data.get(_FOXESS_TEMPLATES_STORE_KEY)
+    data = (await store.async_load()) or {}
+    templates = data.get(msg["deviceSN"], [])
+    entry = {"name": msg["name"], "groups": msg["groups"]}
+    idx = next((i for i, t in enumerate(templates) if t["name"] == msg["name"]), None)
+    if idx is not None:
+        templates[idx] = entry
+    else:
+        templates.append(entry)
+    data[msg["deviceSN"]] = templates
+    await store.async_save(data)
+    connection.send_result(msg["id"], {"ok": True})
+
+
 async def _async_setup_foxess(hass, config, async_add_entities, config_entry=None):
     """Shared setup logic for platform and config entry."""
     name = config.get(CONF_NAME)
@@ -775,7 +812,36 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
                 }
             ),
         )
+        websocket_api.async_register_command(
+            hass,
+            "foxess/get_templates",
+            _ws_get_templates,
+            websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+                {
+                    vol.Required("type"): "foxess/get_templates",
+                    vol.Required("deviceSN"): str,
+                }
+            ),
+        )
+        websocket_api.async_register_command(
+            hass,
+            "foxess/save_template",
+            _ws_save_template,
+            websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+                {
+                    vol.Required("type"): "foxess/save_template",
+                    vol.Required("deviceSN"): str,
+                    vol.Required("name"): str,
+                    vol.Required("groups"): list,
+                }
+            ),
+        )
         hass.data[_ws_key] = True
+
+    if _FOXESS_TEMPLATES_STORE_KEY not in hass.data:
+        hass.data[_FOXESS_TEMPLATES_STORE_KEY] = Store(
+            hass, _TEMPLATES_STORAGE_VERSION, _TEMPLATES_STORAGE_KEY
+        )
 
     if hass.is_running:
         await _register_lovelace_resource(hass)

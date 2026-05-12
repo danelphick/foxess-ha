@@ -17,11 +17,17 @@ class FoxESSSchedulerCard extends HTMLElement {
     this._zoom = 1.0;
     this._tlScrollLeft = 0;
     this._edgeScrollId = null;
+    this._templates = [];
+    this._templatesFetched = false;
   }
 
   set hass(hass) {
     this._hass = hass;
     this._render();
+    if (this._deviceSN && !this._templatesFetched) {
+      this._templatesFetched = true;
+      this._fetchTemplates();
+    }
   }
 
   setConfig(config) {
@@ -60,6 +66,19 @@ class FoxESSSchedulerCard extends HTMLElement {
 
   _minsToStr(mins) {
     return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  }
+
+  async _fetchTemplates() {
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: 'foxess/get_templates',
+        deviceSN: this._deviceSN,
+      });
+      this._templates = res.templates ?? [];
+      this._render();
+    } catch {
+      this._templates = [];
+    }
   }
 
   _render() {
@@ -165,8 +184,12 @@ class FoxESSSchedulerCard extends HTMLElement {
         tr.hovered td { background:rgba(3,169,244,.15) !important; }
         .badge { font-size:.85em; padding:1px 8px; border-radius:10px; border:1px solid; }
         .remaining-sep { padding:5px 0 1px; border-top:1px solid var(--divider-color); }
+        .tpl-row { margin-bottom: 10px; }
+        .tpl-select { font-size:.82em; padding:4px 8px; border-radius:6px; border:1px solid var(--divider-color,#ccc); background:var(--secondary-background-color,#f5f5f5); color:var(--primary-text-color,#333); cursor:pointer; width:100%; }
+        .tpl-none { font-size:.82em; color:var(--secondary-text-color,#888); padding:4px 2px; }
       </style>
       <ha-card>
+        <div class="tpl-row">${this._templates.length ? `<select class="tpl-select"><option value="" disabled selected>Use template…</option>${this._templates.map((t, i) => `<option value="${i}">${t.name}</option>`).join('')}</select>` : '<span class="tpl-none">No templates</span>'}</div>
         <div class="hdr">
           <span class="title">FoxESS Scheduler</span>
           <div class="hdr-right">
@@ -197,6 +220,12 @@ class FoxESSSchedulerCard extends HTMLElement {
       });
     });
 
+    root.querySelector('.tpl-select')?.addEventListener('change', e => {
+      const tpl = this._templates[+e.target.value];
+      if (tpl) this._openEditModal(tpl.groups, true);
+      e.target.value = '';
+    });
+
     root.querySelector('.edit-btn')?.addEventListener('click', () => {
       this._openEditModal(slotData);
     });
@@ -220,19 +249,21 @@ class FoxESSSchedulerCard extends HTMLElement {
 
   // ── Modal open ────────────────────────────────────────────────────────────
 
-  _openEditModal(slotData) {
+  _openEditModal(slotData, isTemplate = false) {
     this._zoom = 1.0;
     this._tlScrollLeft = 0;
-    this._editGroups = slotData.map(s => ({
-      startMins: s.startMins,
-      endMins: s.endMins,
-      enable: s.enabled ? 1 : 0,
-      workMode: s.state,
-      minSocOnGrid: s.min_soc_on_grid ?? 10,
-      fdSoc: s.fd_soc ?? 90,
-      fdPwr: s.fd_pwr_w ?? 0,
-      maxSoc: s.max_soc ?? 100,
-    }));
+    this._editGroups = isTemplate
+      ? slotData.map(g => ({ ...g }))
+      : slotData.map(s => ({
+          startMins: s.startMins,
+          endMins: s.endMins,
+          enable: s.enabled ? 1 : 0,
+          workMode: s.state,
+          minSocOnGrid: s.min_soc_on_grid ?? 10,
+          fdSoc: s.fd_soc ?? 90,
+          fdPwr: s.fd_pwr_w ?? 0,
+          maxSoc: s.max_soc ?? 100,
+        }));
 
     if (!this._dialog || !this._dialog.isConnected) {
       this._dialog = document.createElement('dialog');
@@ -453,6 +484,13 @@ class FoxESSSchedulerCard extends HTMLElement {
         .remaining-sep { padding:5px 0 1px; border-top:1px solid var(--divider-color,#e0e0e0); }
         .del-btn { background:none; border:none; cursor:pointer; padding:2px 4px; color:var(--error-color,#f44336); opacity:.6; border-radius:4px; display:flex; align-items:center; }
         .del-btn:hover { opacity:1; background:rgba(244,67,54,.1); }
+        .tpl-open-btn { background:var(--secondary-background-color,#f0f0f0); color:var(--primary-text-color,#333); font-size:.8em; padding:5px 12px; }
+        .tpl-form { border-top:1px solid var(--divider-color,#e0e0e0); padding-top:10px; }
+        .tpl-form-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+        .tpl-name-input { flex:1; min-width:120px; padding:5px 8px; border-radius:4px; border:1px solid var(--divider-color,#ccc); background:var(--secondary-background-color,#f5f5f5); color:inherit; font-size:.9em; }
+        .tpl-save-btn { background:var(--primary-color,#03a9f4); background-image:linear-gradient(rgba(0,0,0,.2),rgba(0,0,0,.2)); color:#fff; padding:5px 14px; }
+        .tpl-cancel-btn { background:var(--secondary-background-color,#f0f0f0); color:var(--primary-text-color,#333); padding:5px 14px; }
+        .tpl-error { font-size:.8em; color:var(--error-color,#cf6679); display:block; min-height:1.1em; margin-top:4px; }
       </style>
       <div class="dlg-inner">
         <div class="dlg-hdr">
@@ -481,9 +519,22 @@ class FoxESSSchedulerCard extends HTMLElement {
         <div class="dlg-footer">
           <span class="modal-error"></span>
           <div class="btn-row">
+            <button class="action-btn tpl-open-btn">Save as template…</button>
+            <span style="flex:1"></span>
             <button class="action-btn cancel-btn">Cancel</button>
             <button class="action-btn save-btn">Save</button>
             <span class="spinner" style="display:none">Saving…</span>
+          </div>
+          <div class="tpl-form" style="display:none; margin-top:10px;">
+            <div class="tpl-form-row">
+              <select class="tpl-existing-sel">
+                <option value="">New template…</option>
+              </select>
+              <input type="text" class="tpl-name-input" placeholder="Template name" maxlength="40">
+              <button class="action-btn tpl-save-btn">Save</button>
+              <button class="action-btn tpl-cancel-btn">Cancel</button>
+            </div>
+            <span class="tpl-error"></span>
           </div>
         </div>
       </div>`;
@@ -505,6 +556,48 @@ class FoxESSSchedulerCard extends HTMLElement {
     dlg.querySelector('.close-btn').addEventListener('click', () => dlg.close());
     dlg.querySelector('.cancel-btn').addEventListener('click', () => dlg.close());
     dlg.querySelector('.save-btn').addEventListener('click', () => this._saveSchedule());
+
+    const tplForm    = dlg.querySelector('.tpl-form');
+    const tplOpenBtn = dlg.querySelector('.tpl-open-btn');
+    const tplExSel   = dlg.querySelector('.tpl-existing-sel');
+    const tplNameIn  = dlg.querySelector('.tpl-name-input');
+    const tplErrEl   = dlg.querySelector('.tpl-error');
+
+    tplOpenBtn.addEventListener('click', () => {
+      tplExSel.innerHTML = '<option value="">New template…</option>'
+        + this._templates.map((t, i) => `<option value="${i}">${t.name}</option>`).join('');
+      tplNameIn.value = '';
+      tplErrEl.textContent = '';
+      tplForm.style.display = tplForm.style.display === 'none' ? '' : 'none';
+    });
+
+    tplExSel.addEventListener('change', () => {
+      const idx = +tplExSel.value;
+      if (tplExSel.value !== '' && this._templates[idx]) tplNameIn.value = this._templates[idx].name;
+    });
+
+    dlg.querySelector('.tpl-cancel-btn').addEventListener('click', () => {
+      tplForm.style.display = 'none';
+    });
+
+    dlg.querySelector('.tpl-save-btn').addEventListener('click', async () => {
+      const name = tplNameIn.value.trim();
+      if (!name) { tplNameIn.focus(); return; }
+      tplErrEl.textContent = '';
+      try {
+        await this._hass.connection.sendMessagePromise({
+          type: 'foxess/save_template',
+          deviceSN: this._deviceSN,
+          name,
+          groups: this._editGroups.map(g => ({ ...g })),
+        });
+        this._templatesFetched = false;
+        await this._fetchTemplates();
+        tplForm.style.display = 'none';
+      } catch (err) {
+        tplErrEl.textContent = err.message || 'Save failed';
+      }
+    });
 
     let hoverIdx = null;
     let bgTouchState = null;
