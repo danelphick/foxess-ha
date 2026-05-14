@@ -26,6 +26,17 @@
         "data": {
           "apiKey": "API Key"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure FoxESS",
+        "description": "Update settings for device {device_sn}.",
+        "data": {
+          "apiKey": "API Key",
+          "scheduler_api_version": "Scheduler API version"
+        },
+        "data_description": {
+          "scheduler_api_version": "API version used to modify the schedule."
+        }
       }
     },
     "error": {
@@ -39,7 +50,8 @@
     },
     "abort": {
       "already_configured": "Device is already configured",
-      "reauth_successful": "Re-authentication was successful"
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Settings updated successfully"
     }
   }
 }

@@ -115,6 +115,10 @@ CONF_XTZONE = "xtZone"
 CONF_GET_VARIABLES = "Restrict"
 CONF_V1_API = "Use_V1_Api"
 CONF_EVO = "Evo"
+CONF_SCHEDULER_API_VERSION = "scheduler_api_version"
+
+SCHEDULER_API_V2 = "v2"
+SCHEDULER_API_V3 = "v3"
 RETRY_NEXT_SLOT = -1
 RETRY_IN_5_MINS = 25
 _AUTH_ERRNO = {40256, 41808}  # Invalid/empty API key per FoxESS OpenAPI docs
@@ -1220,6 +1224,20 @@ async def setSchedulerFlag(
         FetchResult.AUTH_FAILED if data.get("errno") in _AUTH_ERRNO else FetchResult.ERROR,
         api_msg,
     )
+
+
+async def getSchedulerSegmentsV3(_hass, _allData, _devicesn, _apiKey):
+    """Stub: fetch scheduler segments using the V3 API (not yet implemented)."""
+    _LOGGER.warning("FoxESS schedule V3 API (get) is not yet implemented")
+    return FetchResult.ERROR
+
+
+async def setSchedulerSegmentsV3(
+    _hass: HomeAssistant, _devicesn: str, _apiKey: str, _groups: list
+) -> tuple[FetchResult, str]:
+    """Stub: write scheduler segments using the V3 API (not yet implemented)."""
+    _LOGGER.warning("FoxESS schedule V3 API (set) is not yet implemented")
+    return FetchResult.ERROR, "V3 schedule API is not yet implemented."
 
 
 async def getReport(hass, allData, apiKey, devicesn):

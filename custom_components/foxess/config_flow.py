@@ -25,7 +25,10 @@ from .sensor import (
     CONF_DEVICEID,
     CONF_DEVICESN,
     CONF_EXTPV,
+    CONF_SCHEDULER_API_VERSION,
     DEFAULT_NAME,
+    SCHEDULER_API_V2,
+    SCHEDULER_API_V3,
     YAML_CONFIGS_KEY,
     GetAuth,
 )
@@ -175,6 +178,54 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 user_input or {},
             ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Allow the user to update the API key and schedule API version."""
+        reconfigure_entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            _, error = await _fetch_device_list(self.hass, user_input[CONF_APIKEY])
+            if error in (None, "no_devices"):
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates={
+                        CONF_APIKEY: user_input[CONF_APIKEY],
+                        CONF_SCHEDULER_API_VERSION: user_input[CONF_SCHEDULER_API_VERSION],
+                    },
+                )
+            errors["base"] = error
+
+        current_version = reconfigure_entry.data.get(
+            CONF_SCHEDULER_API_VERSION, SCHEDULER_API_V2
+        )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(
+                    {
+                        vol.Required(CONF_APIKEY): str,
+                        vol.Required(CONF_SCHEDULER_API_VERSION): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[
+                                    SelectOptionDict(value=SCHEDULER_API_V2, label="V2"),
+                                    SelectOptionDict(value=SCHEDULER_API_V3, label="V3"),
+                                ],
+                                mode=SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    }
+                ),
+                {
+                    CONF_APIKEY: reconfigure_entry.data.get(CONF_APIKEY, ""),
+                    CONF_SCHEDULER_API_VERSION: current_version,
+                },
+            ),
+            description_placeholders={"device_sn": reconfigure_entry.data[CONF_DEVICESN]},
             errors=errors,
         )
 
