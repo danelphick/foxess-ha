@@ -96,17 +96,20 @@ class FoxESSSchedulerCard extends HTMLElement {
     const enabledState = schedulerEnabled ? (this._hass.states[schedulerEnabled]?.state ?? 'unavailable') : 'unavailable';
 
     const rawGroups = groupsEntityId ? (this._hass.states[groupsEntityId]?.attributes?.groups ?? []) : [];
+    const schedApiVer = groupsEntityId ? (this._hass.states[groupsEntityId]?.attributes?.scheduler_api_version ?? 'v2') : 'v2';
+    this._isV3 = schedApiVer === 'v3';
     const slotData = rawGroups.map((g, idx) => {
       const startMins = g.startHour * 60 + g.startMinute;
       const endMins = g.endHour * 60 + g.endMinute;
-      const isActive = !!g.enable && endMins > startMins &&
+      const enabled = this._isV3 || (startMins === 0 && endMins === 1439) ? true : !!g.enable;
+      const isActive = enabled && endMins > startMins &&
         curMins >= startMins && curMins < endMins;
       return {
         idx: idx + 1,
         state: g.workMode,
         start: `${String(g.startHour).padStart(2, '0')}:${String(g.startMinute).padStart(2, '0')}`,
         end: `${String(g.endHour).padStart(2, '0')}:${String(g.endMinute).padStart(2, '0')}`,
-        enabled: !!g.enable,
+        enabled,
         min_soc_on_grid: g.extraParam.minSocOnGrid,
         fd_soc:          g.extraParam.fdSoc,
         fd_pwr_w:        g.extraParam.fdPwr,
@@ -145,11 +148,12 @@ class FoxESSSchedulerCard extends HTMLElement {
         <td>${s.min_soc_on_grid ?? '—'}%</td>
         <td>${s.fd_soc ?? '—'}%</td>
         <td>${pwr}</td>
+        <td>${s.max_soc ?? '—'}%</td>
       </tr>`;
     };
     const normalRows = normalSlots.map(s => makeRow(s, true)).join('');
     const remainingRow = remainingSlot
-      ? `<tr><td colspan="6" class="remaining-sep"></td></tr>${makeRow(remainingSlot, false)}`
+      ? `<tr><td colspan="7" class="remaining-sep"></td></tr>${makeRow(remainingSlot, false)}`
       : '';
     const rows = normalRows + remainingRow;
 
@@ -205,7 +209,7 @@ class FoxESSSchedulerCard extends HTMLElement {
           <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
         </div>
         <table>
-          <thead><tr><th>Start</th><th>End</th><th>Mode</th><th>Min SoC</th><th>FD SoC</th><th>FD Power</th></tr></thead>
+          <thead><tr><th>Start</th><th>End</th><th>Mode</th><th>Min SoC</th><th>FD SoC</th><th>FD Power</th><th>Max SoC</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </ha-card>`;
@@ -222,7 +226,10 @@ class FoxESSSchedulerCard extends HTMLElement {
 
     root.querySelector('.tpl-select')?.addEventListener('change', e => {
       const tpl = this._templates[+e.target.value];
-      if (tpl) this._openEditModal(tpl.groups, true);
+      if (tpl) {
+        const groups = this._isV3 ? tpl.groups.filter(g => g.enable !== 0) : tpl.groups;
+        this._openEditModal(groups, true);
+      }
       e.target.value = '';
     });
 
@@ -344,30 +351,41 @@ class FoxESSSchedulerCard extends HTMLElement {
 
     const makeEditRow = (g, idx, showTime) => {
       const cfg = WORK_MODES[g.workMode] ?? { color: '#9e9e9e' };
-      const modeOpts = Object.entries(WORK_MODES).map(([k, { label }]) =>
-        `<option value="${k}"${k === g.workMode ? ' selected' : ''}>${label}</option>`
-      ).join('');
+      const modeOpts = Object.entries(WORK_MODES)
+        .filter(([k]) => showTime || (k !== 'ForceCharge' && k !== 'ForceDischarge'))
+        .map(([k, { label }]) =>
+          `<option value="${k}"${k === g.workMode ? ' selected' : ''}>${label}</option>`
+        ).join('');
       const timeCells = showTime
         ? `<td class="time-start">${this._minsToStr(g.startMins)}</td><td class="time-end">${this._minsToStr(g.endMins)}</td>`
         : `<td colspan="2" style="color:var(--secondary-text-color,#888)">Remaining Time Slots</td>`;
       const delCell = showTime
         ? `<td><button class="del-btn" data-idx="${idx}" title="Delete"><ha-icon icon="mdi:delete"></ha-icon></button></td>`
         : `<td></td>`;
+      const fdSocCell = showTime
+        ? `<td><input type="number" class="num-input" data-idx="${idx}" data-field="fdSoc" value="${g.fdSoc}" min="0" max="100" step="1" style="width:3.5em"></td>`
+        : `<td></td>`;
+      const fdPwrCell = showTime
+        ? `<td><input type="number" class="num-input" data-idx="${idx}" data-field="fdPwr" value="${g.fdPwr}" min="0" max="15000" step="100" style="width:4.5em"></td>`
+        : `<td></td>`;
+      const enableCell = this._isV3 ? '' : `<td style="text-align:center">${showTime ? `<input type="checkbox" class="enable-cb" data-idx="${idx}"${g.enable ? ' checked' : ''}>` : ''}</td>`;
       return `<tr data-idx="${idx}">
         ${timeCells}
         <td><select class="mode-sel" data-idx="${idx}" style="border-left:3px solid ${cfg.color}">${modeOpts}</select></td>
         <td><input type="number" class="num-input" data-idx="${idx}" data-field="minSocOnGrid" value="${g.minSocOnGrid}" min="0" max="100" step="1" style="width:3.5em"></td>
-        <td><input type="number" class="num-input" data-idx="${idx}" data-field="fdSoc" value="${g.fdSoc}" min="0" max="100" step="1" style="width:3.5em"></td>
-        <td><input type="number" class="num-input" data-idx="${idx}" data-field="fdPwr" value="${g.fdPwr}" min="0" max="15000" step="100" style="width:4.5em"></td>
-        <td style="text-align:center"><input type="checkbox" class="enable-cb" data-idx="${idx}"${g.enable ? ' checked' : ''}></td>
+        ${fdSocCell}
+        ${fdPwrCell}
+        <td><input type="number" class="num-input" data-idx="${idx}" data-field="maxSoc" value="${g.maxSoc ?? 100}" min="0" max="100" step="1" style="width:3.5em"></td>
+        ${enableCell}
         ${delCell}
       </tr>`;
     };
 
+    const modalColCount = this._isV3 ? 8 : 9;
     const normalRowHtml = groups.map((g, idx) => isRemaining(g) ? '' : makeEditRow(g, idx, true)).join('');
     const remainingIdx = groups.findIndex(isRemaining);
     const remainingRowHtml = remainingIdx >= 0
-      ? `<tr><td colspan="8" class="remaining-sep"></td></tr>${makeEditRow(groups[remainingIdx], remainingIdx, false)}`
+      ? `<tr><td colspan="${modalColCount}" class="remaining-sep"></td></tr>${makeEditRow(groups[remainingIdx], remainingIdx, false)}`
       : '';
     const rowHtml = normalRowHtml + remainingRowHtml;
 
@@ -512,7 +530,7 @@ class FoxESSSchedulerCard extends HTMLElement {
           <table class="modal-table">
             <thead><tr>
               <th>Start</th><th>End</th><th>Mode</th>
-              <th>Min SoC%</th><th>FD SoC%</th><th>FD Pwr (W)</th><th style="text-align:center">On</th><th></th>
+              <th>Min SoC%</th><th>FD SoC%</th><th>FD Pwr (W)</th><th>Max SoC%</th>${this._isV3 ? '' : '<th style="text-align:center">On</th>'}<th></th>
             </tr></thead>
             <tbody>${rowHtml}</tbody>
           </table>
@@ -637,7 +655,8 @@ class FoxESSSchedulerCard extends HTMLElement {
       if (tplLoadSel.value === '') { tplLoadErrEl.textContent = 'Select a template first'; return; }
       const tpl = this._templates[+tplLoadSel.value];
       if (!tpl) return;
-      this._editGroups = tpl.groups.map(g => ({ ...g }));
+      const srcGroups = this._isV3 ? tpl.groups.filter(g => g.enable !== 0) : tpl.groups;
+      this._editGroups = srcGroups.map(g => ({ ...g }));
       this._renderModal();
     });
 
@@ -1285,12 +1304,24 @@ class FoxESSSchedulerCard extends HTMLElement {
     const spinner  = dlg.querySelector('.spinner');
     const errEl    = dlg.querySelector('.modal-error');
 
+    errEl.textContent = '';
+    const isRemainingEditGroup = g => g.startMins === 0 && g.endMins === 1439;
+    const invalid = this._editGroups.find(g =>
+      isRemainingEditGroup(g)
+        ? !(g.maxSoc >= g.minSocOnGrid)
+        : !(g.maxSoc >= g.fdSoc && g.fdSoc >= g.minSocOnGrid)
+    );
+    if (invalid) {
+      errEl.textContent = 'Each slot requires Max SoC ≥ FD SoC ≥ Min SoC';
+      return;
+    }
+
     saveBtn.disabled     = true;
     spinner.style.display = 'inline';
-    errEl.textContent    = '';
 
+    const isRemainingGroup = g => g.startMins === 0 && g.endMins === 1439;
     const groups = this._editGroups.map(g => ({
-      enable:       g.enable,
+      enable:       (this._isV3 || isRemainingGroup(g)) ? 1 : g.enable,
       startHour:    Math.floor(g.startMins / 60),
       startMinute:  g.startMins % 60,
       endHour:      Math.floor(g.endMins / 60),

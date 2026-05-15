@@ -68,6 +68,9 @@ _ENDPOINT_OA_DAILY_GENERATION = "/op/v0/device/generation?sn="
 _ENDPOINT_OA_SCHEDULER_SET_FLAG = "/op/v1/device/scheduler/set/flag"
 _ENDPOINT_OA_SCHEDULER_SEGMENTS = "/op/v2/device/scheduler/get"
 _ENDPOINT_OA_SCHEDULER_ENABLE = "/op/v2/device/scheduler/enable"
+_ENDPOINT_OA_SCHEDULER_SEGMENTS_V3 = "/op/v3/device/scheduler/get"
+_ENDPOINT_OA_SCHEDULER_ENABLE_V3 = "/op/v3/device/scheduler/enable"
+_ENDPOINT_OA_DEVICE_SETTINGS_SET = "/op/v0/device/setting/set"
 _FOXESS_DEVICES_KEY = "foxess_devices"
 _FOXESS_TEMPLATES_STORE_KEY = "foxess_templates_store"
 _TEMPLATES_STORAGE_KEY = "foxess.templates"
@@ -243,7 +246,15 @@ async def _fetch_live_data(
         # read in battery settings if fitted at startup, then every 60 mins
         await getOABatterySettings(hass, allData, devicesn, apiKey)
         await asyncio.sleep(1)  # OpenAPI demand
-        await getSchedulerSegments(hass, allData, devicesn, apiKey)
+        sched_ver = (
+            hass.data.get(_FOXESS_DEVICES_KEY, {})
+            .get(devicesn, {})
+            .get(CONF_SCHEDULER_API_VERSION, SCHEDULER_API_V2)
+        )
+        if sched_ver == SCHEDULER_API_V3:
+            await getSchedulerSegmentsV3(hass, allData, devicesn, apiKey)
+        else:
+            await getSchedulerSegments(hass, allData, devicesn, apiKey)
         await asyncio.sleep(1)  # OpenAPI demand
     # main real time data fetch, followed by reports
     geterror = await getRaw(
@@ -447,15 +458,28 @@ async def _ws_save_schedule(
             msg["id"], websocket_api.ERR_NOT_FOUND, f"No FoxESS device {device_sn}"
         )
         return
-    result, api_msg = await setSchedulerSegments(
-        hass, device_sn, devices[device_sn]["apiKey"], msg["groups"]
-    )
+    device_info = devices[device_sn]
+    sched_ver = device_info.get(CONF_SCHEDULER_API_VERSION, SCHEDULER_API_V2)
+    if sched_ver == SCHEDULER_API_V3:
+        result, api_msg = await setSchedulerSegmentsV3(
+            hass, device_sn, device_info["apiKey"], msg["groups"]
+        )
+    else:
+        result, api_msg = await setSchedulerSegments(
+            hass, device_sn, device_info["apiKey"], msg["groups"]
+        )
     if result is FetchResult.OK:
         device_data = devices[device_sn]
         all_data = device_data.get("allData")
         coord = device_data.get("coordinator")
         if all_data is not None and coord is not None:
             all_data["scheduler"]["groups"] = msg["groups"]
+            remaining = next(
+                (g for g in msg["groups"] if _is_remaining_group(g)), None
+            )
+            if remaining is not None:
+                extra = remaining.get("extraParam", {})
+                all_data["battery"]["minSocOnGrid"] = extra.get("minSocOnGrid")
             coord.async_set_updated_data(all_data)
         connection.send_result(msg["id"], {"ok": True})
     elif result is FetchResult.AUTH_FAILED:
@@ -585,7 +609,11 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
     allData["addressbook"]["hasBattery"] = False  # assume no battery is fitted for now
     allData["addressbook"]["status"] = "3"  # assume inverter is off-line for now
 
-    device_entry: dict = {"apiKey": apiKey}
+    scheduler_api_version = config.get(CONF_SCHEDULER_API_VERSION, SCHEDULER_API_V2)
+    device_entry: dict = {
+        "apiKey": apiKey,
+        CONF_SCHEDULER_API_VERSION: scheduler_api_version,
+    }
     hass.data.setdefault(_FOXESS_DEVICES_KEY, {})[devicesn] = device_entry
 
     async def _update_callback() -> dict:
@@ -755,7 +783,7 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             make(FoxESSMaxBatDischargeCurrent),
             make(FoxESSRunningState, "Running State", "running-state", "runningState"),
             make(FoxESSSchedulerEnabled),
-            make(FoxESSSchedulerGroups, devicesn),
+            make(FoxESSSchedulerGroups, devicesn, scheduler_api_version),
         ]
     )
 
@@ -1147,7 +1175,14 @@ async def getSchedulerSegments(hass, allData, devicesn, apiKey):
             allData["scheduler"]["groups"] = []
         else:
             allData["scheduler"]["enabled"] = bool(int(result.get("enable", 0)))
-            allData["scheduler"]["groups"] = result.get("groups", [])
+            groups = result.get("groups", [])
+            groups.sort(
+                key=lambda g: (
+                    g.get("endHour", 0) * 60 + g.get("endMinute", 0),
+                    g.get("startHour", 0) * 60 + g.get("startMinute", 0),
+                )
+            )
+            allData["scheduler"]["groups"] = groups
         return FetchResult.OK
 
     _LOGGER.debug("Scheduler segments bad response: %s", response)
@@ -1158,10 +1193,132 @@ async def getSchedulerSegments(hass, allData, devicesn, apiKey):
     )
 
 
+def _is_remaining_group(g: dict) -> bool:
+    """Return True if the group covers the full day (00:00–23:59)."""
+    return (
+        g.get("startHour") == 0
+        and g.get("startMinute") == 0
+        and g.get("endHour") == 23
+        and g.get("endMinute") == 59
+    )
+
+
+async def _set_device_setting(
+    hass: HomeAssistant,
+    devicesn: str,
+    apiKey: str,
+    key: str,
+    value: int,
+) -> tuple[FetchResult, str]:
+    """POST a single key/value pair to /op/v0/device/setting/set."""
+    await waitforAPI()
+    path = _ENDPOINT_OA_DEVICE_SETTINGS_SET
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+    session = async_get_clientsession(hass, verify_ssl=DEFAULT_VERIFY_SSL)
+    try:
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        async with session.post(
+            _ENDPOINT_OA_DOMAIN + path,
+            headers=headerData,
+            json={"sn": devicesn, "key": key, "value": str(value)},
+            timeout=timeout,
+        ) as resp:
+            data = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("_set_device_setting: network error (key=%s)", key)
+        return FetchResult.ERROR, "Network error — please try again."
+
+    if data.get("errno") == 0:
+        _LOGGER.debug("_set_device_setting: success (key=%s)", key)
+        return FetchResult.OK, ""
+
+    _LOGGER.error("_set_device_setting: bad response (key=%s) %s", key, data)
+    api_msg = data.get("msg") or "FoxESS Cloud returned an error."
+    return (
+        FetchResult.AUTH_FAILED if data.get("errno") in _AUTH_ERRNO else FetchResult.ERROR,
+        api_msg,
+    )
+
+
+async def _set_battery_soc(
+    hass: HomeAssistant,
+    devicesn: str,
+    apiKey: str,
+    min_soc: int,
+    min_soc_on_grid: int,
+) -> tuple[FetchResult, str]:
+    """POST to /op/v0/device/battery/soc/set with minSoc and minSocOnGrid."""
+    await waitforAPI()
+    path = "/op/v0/device/battery/soc/set"
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+    session = async_get_clientsession(hass, verify_ssl=DEFAULT_VERIFY_SSL)
+    try:
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        async with session.post(
+            _ENDPOINT_OA_DOMAIN + path,
+            headers=headerData,
+            json={"sn": devicesn, "minSoc": min_soc, "minSocOnGrid": min_soc_on_grid},
+            timeout=timeout,
+        ) as resp:
+            data = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("_set_battery_soc: network error")
+        return FetchResult.ERROR, "Network error — please try again."
+
+    if data.get("errno") == 0:
+        _LOGGER.debug("_set_battery_soc: success")
+        return FetchResult.OK, ""
+
+    _LOGGER.error("_set_battery_soc: bad response %s", data)
+    api_msg = data.get("msg") or "FoxESS Cloud returned an error."
+    return (
+        FetchResult.AUTH_FAILED if data.get("errno") in _AUTH_ERRNO else FetchResult.ERROR,
+        api_msg,
+    )
+
+
 async def setSchedulerSegments(
     hass: HomeAssistant, devicesn: str, apiKey: str, groups: list
 ) -> tuple[FetchResult, str]:
-    """POST updated schedule groups to FoxESS Cloud /op/v2/device/scheduler/enable."""
+    """Save the schedule to FoxESS Cloud.
+
+    The remaining time slot (00:00–23:59) is handled separately: its minSocOnGrid
+    is written via /op/v0/device/battery/soc/set and maxSoc via /op/v0/device/setting/set.
+    It is NOT sent to the scheduler API, which does not handle it correctly.
+    """
+    remaining = next((g for g in groups if _is_remaining_group(g)), None)
+    scheduled = [g for g in groups if not _is_remaining_group(g)]
+
+    devices_data = hass.data.get(_FOXESS_DEVICES_KEY, {})
+    device_all_data = devices_data.get(devicesn, {}).get("allData", {})
+    scheduler_was_enabled = bool(device_all_data.get("scheduler", {}).get("enabled"))
+
+    if remaining is not None:
+        extra = remaining.get("extraParam", {})
+        if scheduler_was_enabled:
+            result, api_msg = await setSchedulerFlag(hass, devicesn, apiKey, 0)
+            if result is not FetchResult.OK:
+                return result, api_msg
+
+        current_min_soc = device_all_data.get("battery", {}).get("minSoc", 10)
+        result, api_msg = await _set_battery_soc(
+            hass, devicesn, apiKey,
+            min_soc=current_min_soc,
+            min_soc_on_grid=extra.get("minSocOnGrid", 10),
+        )
+        if result is not FetchResult.OK:
+            return result, api_msg
+        result, api_msg = await _set_device_setting(
+            hass, devicesn, apiKey, "MaxSoc", extra.get("maxSoc", 100)
+        )
+        if result is not FetchResult.OK:
+            return result, api_msg
+
+    if not scheduled:
+        if scheduler_was_enabled and remaining is not None:
+            return await setSchedulerFlag(hass, devicesn, apiKey, 1)
+        return FetchResult.OK, ""
+
     await waitforAPI()
     path = _ENDPOINT_OA_SCHEDULER_ENABLE
     headerData = GetAuth().get_signature(token=apiKey, path=path)
@@ -1171,7 +1328,7 @@ async def setSchedulerSegments(
         async with session.post(
             _ENDPOINT_OA_DOMAIN + path,
             headers=headerData,
-            json={"deviceSN": devicesn, "groups": groups},
+            json={"deviceSN": devicesn, "groups": scheduled},
             timeout=timeout,
         ) as resp:
             data = await resp.json(content_type=None)
@@ -1186,9 +1343,7 @@ async def setSchedulerSegments(
     _LOGGER.error("setSchedulerSegments: bad response %s", data)
     api_msg = data.get("msg") or "FoxESS Cloud returned an error."
     return (
-        FetchResult.AUTH_FAILED
-        if data.get("errno") in _AUTH_ERRNO
-        else FetchResult.ERROR,
+        FetchResult.AUTH_FAILED if data.get("errno") in _AUTH_ERRNO else FetchResult.ERROR,
         api_msg,
     )
 
@@ -1226,18 +1381,103 @@ async def setSchedulerFlag(
     )
 
 
-async def getSchedulerSegmentsV3(_hass, _allData, _devicesn, _apiKey):
-    """Stub: fetch scheduler segments using the V3 API (not yet implemented)."""
-    _LOGGER.warning("FoxESS schedule V3 API (get) is not yet implemented")
-    return FetchResult.ERROR
+async def getSchedulerSegmentsV3(hass, allData, devicesn, apiKey):
+    """Fetch scheduler time segment groups from FoxESS OpenAPI V3 and populate allData['scheduler']."""
+    await waitforAPI()
+
+    path = _ENDPOINT_OA_SCHEDULER_SEGMENTS_V3
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+
+    _LOGGER.debug("getSchedulerSegmentsV3 fetch %s", path)
+
+    restSchedulerSegments = RestData(
+        hass,
+        METHOD_POST,
+        _ENDPOINT_OA_DOMAIN + path,
+        DEFAULT_ENCODING,
+        None,
+        headerData,
+        None,
+        '{"deviceSN":"' + devicesn + '"}',
+        DEFAULT_VERIFY_SSL,
+        SSLCipherList.PYTHON_DEFAULT,
+        DEFAULT_TIMEOUT,
+    )
+    await restSchedulerSegments.async_update()
+
+    if restSchedulerSegments.data is None or restSchedulerSegments.data == "":
+        _LOGGER.debug("Unable to get scheduler segments (V3) from FoxESS Cloud")
+        return FetchResult.ERROR
+
+    response = json.loads(restSchedulerSegments.data)
+    if response["errno"] == 0 and (
+        response["msg"] == "success" or response["msg"] == "Operation successful"
+    ):
+        result = response["result"]
+        if result is None:
+            _LOGGER.debug(
+                "Scheduler segments (V3) returned null — no cloud-side groups configured"
+            )
+            allData["scheduler"]["groups"] = []
+        else:
+            allData["scheduler"]["enabled"] = bool(int(result.get("enable", 0)))
+            groups = result.get("groups", [])
+            groups.sort(
+                key=lambda g: (
+                    g.get("endHour", 0) * 60 + g.get("endMinute", 0),
+                    g.get("startHour", 0) * 60 + g.get("startMinute", 0),
+                )
+            )
+            allData["scheduler"]["groups"] = groups
+        return FetchResult.OK
+
+    _LOGGER.debug("Scheduler segments (V3) bad response: %s", response)
+    return (
+        FetchResult.AUTH_FAILED
+        if response["errno"] in _AUTH_ERRNO
+        else FetchResult.ERROR
+    )
 
 
 async def setSchedulerSegmentsV3(
-    _hass: HomeAssistant, _devicesn: str, _apiKey: str, _groups: list
+    hass: HomeAssistant, devicesn: str, apiKey: str, groups: list
 ) -> tuple[FetchResult, str]:
-    """Stub: write scheduler segments using the V3 API (not yet implemented)."""
-    _LOGGER.warning("FoxESS schedule V3 API (set) is not yet implemented")
-    return FetchResult.ERROR, "V3 schedule API is not yet implemented."
+    """Save the schedule to FoxESS Cloud using the V3 API.
+
+    All groups — including the 00:00–23:59 remaining slot — are sent directly to
+    the V3 scheduler endpoint.  V3 does not support per-group enable flags, and
+    the remaining slot is a native first-class group in the API.
+    """
+    if not groups:
+        return FetchResult.OK, ""
+
+    await waitforAPI()
+    path = _ENDPOINT_OA_SCHEDULER_ENABLE_V3
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+    session = async_get_clientsession(hass, verify_ssl=DEFAULT_VERIFY_SSL)
+    try:
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        async with session.post(
+            _ENDPOINT_OA_DOMAIN + path,
+            headers=headerData,
+            json={"deviceSN": devicesn, "isDefault": False, "groups": groups},
+            timeout=timeout,
+        ) as resp:
+            data = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("setSchedulerSegmentsV3: network error")
+        return FetchResult.ERROR, "Network error — please try again."
+
+    if data.get("errno") == 0:
+        _LOGGER.debug("setSchedulerSegmentsV3: success")
+        return FetchResult.OK, ""
+
+    _LOGGER.error("setSchedulerSegmentsV3: bad response %s", data)
+    api_msg = data.get("msg") or "FoxESS Cloud returned an error."
+    return (
+        FetchResult.AUTH_FAILED if data.get("errno") in _AUTH_ERRNO else FetchResult.ERROR,
+        api_msg,
+    )
 
 
 async def getReport(hass, allData, apiKey, devicesn):
@@ -2150,10 +2390,18 @@ class FoxESSSchedulerGroups(CoordinatorEntity, SensorEntity):
 
     _attr_icon = "mdi:calendar-clock"
 
-    def __init__(self, coordinator, name, deviceID, device_sn: str = ""):
+    def __init__(
+        self,
+        coordinator,
+        name,
+        deviceID,
+        device_sn: str = "",
+        scheduler_api_version: str = SCHEDULER_API_V2,
+    ):
         """Initialize the scheduler groups sensor entity."""
         super().__init__(coordinator=coordinator)
         self._device_sn = device_sn
+        self._scheduler_api_version = scheduler_api_version
         _LOGGER.debug("Initiating Entity - Scheduler Groups")
         self._attr_name = f"{name} - Scheduler Groups"
         self._attr_unique_id = f"{deviceID}scheduler-groups"
@@ -2165,10 +2413,11 @@ class FoxESSSchedulerGroups(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return the full groups list and device SN as attributes."""
+        """Return the full groups list, device SN and scheduler API version as attributes."""
         return {
             "groups": self.coordinator.data["scheduler"]["groups"],
             "device_sn": self._device_sn,
+            "scheduler_api_version": self._scheduler_api_version,
         }
 
 

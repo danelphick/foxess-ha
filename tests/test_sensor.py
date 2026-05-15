@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from custom_components.foxess.sensor import (
     _FOXESS_DEVICES_KEY,
     _FOXESS_TEMPLATES_STORE_KEY,
+    CONF_SCHEDULER_API_VERSION,
     FetchResult,
     FoxESSBatMinSoC,
     FoxESSBatMinSoConGrid,
@@ -24,6 +25,7 @@ from custom_components.foxess.sensor import (
     _ws_save_template,
     getReportDailyGeneration,
     setSchedulerSegments,
+    setSchedulerSegmentsV3,
 )
 import pytest
 
@@ -492,6 +494,18 @@ class TestFoxESSSchedulerGroups:
         entity = FoxESSSchedulerGroups(_coordinator(data), "Inv", "DEV")
         assert entity.extra_state_attributes["device_sn"] == ""
 
+    def test_scheduler_api_version_in_attributes(self) -> None:
+        """extra_state_attributes includes scheduler_api_version."""
+        data = {"scheduler": {"groups": []}}
+        entity = FoxESSSchedulerGroups(_coordinator(data), "Inv", "DEV01", "SN1", "v3")
+        assert entity.extra_state_attributes["scheduler_api_version"] == "v3"
+
+    def test_scheduler_api_version_defaults_to_v2(self) -> None:
+        """scheduler_api_version defaults to 'v2' when not provided."""
+        data = {"scheduler": {"groups": []}}
+        entity = FoxESSSchedulerGroups(_coordinator(data), "Inv", "DEV01", "SN1")
+        assert entity.extra_state_attributes["scheduler_api_version"] == "v2"
+
 
 # ---------------------------------------------------------------------------
 # setSchedulerSegments — write function
@@ -790,3 +804,392 @@ class TestWsSaveTemplate:
         saved = store.async_save.call_args[0][0]
         assert "OTHER" in saved
         assert saved["OTHER"] == [{"name": "t", "groups": []}]
+
+
+# ---------------------------------------------------------------------------
+# setSchedulerSegments — remaining group handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSetSchedulerSegmentsRemainingGroup:
+    """Tests for setSchedulerSegments remaining-group (00:00–23:59) handling."""
+
+    _REMAINING = {
+        "startHour": 0, "startMinute": 0, "endHour": 23, "endMinute": 59,
+        "enable": 1, "workMode": "SelfUse",
+        "extraParam": {"minSocOnGrid": 20, "fdSoc": 50, "fdPwr": 0, "maxSoc": 85},
+    }
+    _SCHEDULED = {
+        "startHour": 6, "startMinute": 0, "endHour": 12, "endMinute": 0,
+        "enable": 1, "workMode": "ForceCharge",
+        "extraParam": {"minSocOnGrid": 10, "fdSoc": 50, "fdPwr": 2000, "maxSoc": 100},
+    }
+
+    def _make_hass(self, scheduler_enabled: bool = False, min_soc: int = 10) -> MagicMock:
+        hass = MagicMock()
+        hass.data = {
+            _FOXESS_DEVICES_KEY: {
+                "SN1": {
+                    "allData": {
+                        "scheduler": {"enabled": scheduler_enabled},
+                        "battery": {"minSoc": min_soc},
+                    }
+                }
+            }
+        }
+        return hass
+
+    async def test_calls_battery_soc_with_current_min_soc_from_all_data(self) -> None:
+        """_set_battery_soc is called with the current minSoc read from allData."""
+        hass = self._make_hass(min_soc=15)
+        mock_battery = AsyncMock(return_value=(FetchResult.OK, ""))
+        mock_device = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor._set_battery_soc", mock_battery),
+            patch("custom_components.foxess.sensor._set_device_setting", mock_device),
+        ):
+            result, _ = await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        assert result is FetchResult.OK
+        mock_battery.assert_called_once_with(hass, "SN1", "key", min_soc=15, min_soc_on_grid=20)
+
+    async def test_calls_device_setting_with_max_soc(self) -> None:
+        """_set_device_setting is called with 'MaxSoc' and the group's maxSoc value."""
+        hass = self._make_hass()
+        mock_battery = AsyncMock(return_value=(FetchResult.OK, ""))
+        mock_device = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor._set_battery_soc", mock_battery),
+            patch("custom_components.foxess.sensor._set_device_setting", mock_device),
+        ):
+            await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        mock_device.assert_called_once_with(hass, "SN1", "key", "MaxSoc", 85)
+
+    async def test_disables_scheduler_when_enabled(self) -> None:
+        """Calls setSchedulerFlag(0) when the scheduler is active before writing SoC settings."""
+        hass = self._make_hass(scheduler_enabled=True)
+        mock_flag = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor.setSchedulerFlag", mock_flag),
+            patch("custom_components.foxess.sensor._set_battery_soc", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+            patch("custom_components.foxess.sensor._set_device_setting", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+        ):
+            await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        mock_flag.assert_any_call(hass, "SN1", "key", 0)
+
+    async def test_returns_error_when_disable_flag_fails(self) -> None:
+        """Returns ERROR immediately when setSchedulerFlag(0) fails, skipping battery SoC call."""
+        hass = self._make_hass(scheduler_enabled=True)
+        mock_battery = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor.setSchedulerFlag", new_callable=AsyncMock, return_value=(FetchResult.ERROR, "flag error")),
+            patch("custom_components.foxess.sensor._set_battery_soc", mock_battery),
+            patch("custom_components.foxess.sensor._set_device_setting", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+        ):
+            result, msg = await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        assert result is FetchResult.ERROR
+        assert msg == "flag error"
+        mock_battery.assert_not_called()
+
+    async def test_skips_disable_when_scheduler_not_enabled(self) -> None:
+        """The scheduler-disable flag call is skipped when the scheduler is already inactive."""
+        hass = self._make_hass(scheduler_enabled=False)
+        mock_flag = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor.setSchedulerFlag", mock_flag),
+            patch("custom_components.foxess.sensor._set_battery_soc", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+            patch("custom_components.foxess.sensor._set_device_setting", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+        ):
+            await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        mock_flag.assert_not_called()
+
+    async def test_reenables_scheduler_when_no_scheduled_groups_and_was_enabled(self) -> None:
+        """setSchedulerFlag(1) is called after settings are written when no scheduled groups remain."""
+        hass = self._make_hass(scheduler_enabled=True)
+        mock_flag = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor.setSchedulerFlag", mock_flag),
+            patch("custom_components.foxess.sensor._set_battery_soc", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+            patch("custom_components.foxess.sensor._set_device_setting", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+        ):
+            result, _ = await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        assert result is FetchResult.OK
+        assert mock_flag.call_count == 2
+        assert mock_flag.call_args_list[0][0] == (hass, "SN1", "key", 0)
+        assert mock_flag.call_args_list[1][0] == (hass, "SN1", "key", 1)
+
+    async def test_no_reenable_when_was_not_enabled(self) -> None:
+        """No flag calls are made at all when the scheduler was not active."""
+        hass = self._make_hass(scheduler_enabled=False)
+        mock_flag = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor.setSchedulerFlag", mock_flag),
+            patch("custom_components.foxess.sensor._set_battery_soc", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+            patch("custom_components.foxess.sensor._set_device_setting", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+        ):
+            result, _ = await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        assert result is FetchResult.OK
+        mock_flag.assert_not_called()
+
+    async def test_returns_error_when_battery_soc_fails(self) -> None:
+        """Returns ERROR immediately when _set_battery_soc fails, skipping MaxSoc call."""
+        hass = self._make_hass()
+        mock_battery = AsyncMock(return_value=(FetchResult.ERROR, "soc error"))
+        mock_device = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor._set_battery_soc", mock_battery),
+            patch("custom_components.foxess.sensor._set_device_setting", mock_device),
+        ):
+            result, msg = await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        assert result is FetchResult.ERROR
+        assert msg == "soc error"
+        mock_device.assert_not_called()
+
+    async def test_returns_error_when_max_soc_setting_fails(self) -> None:
+        """Returns ERROR immediately when _set_device_setting for MaxSoc fails."""
+        hass = self._make_hass()
+        mock_device = AsyncMock(return_value=(FetchResult.ERROR, "maxsoc error"))
+        with (
+            patch("custom_components.foxess.sensor._set_battery_soc", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+            patch("custom_components.foxess.sensor._set_device_setting", mock_device),
+        ):
+            result, msg = await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        assert result is FetchResult.ERROR
+        assert msg == "maxsoc error"
+
+    async def test_defaults_min_soc_to_10_when_missing_from_all_data(self) -> None:
+        """Falls back to minSoc=10 when allData has no battery.minSoc entry."""
+        hass = MagicMock()
+        hass.data = {
+            _FOXESS_DEVICES_KEY: {
+                "SN1": {"allData": {"scheduler": {"enabled": False}, "battery": {}}}
+            }
+        }
+        mock_battery = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor._set_battery_soc", mock_battery),
+            patch("custom_components.foxess.sensor._set_device_setting", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+        ):
+            await setSchedulerSegments(hass, "SN1", "key", [self._REMAINING])
+        mock_battery.assert_called_once_with(hass, "SN1", "key", min_soc=10, min_soc_on_grid=20)
+
+    async def test_defaults_max_soc_to_100_when_missing_from_extra_param(self) -> None:
+        """Falls back to maxSoc=100 when extraParam does not contain maxSoc."""
+        remaining = {**self._REMAINING, "extraParam": {"minSocOnGrid": 20}}
+        hass = self._make_hass()
+        mock_device = AsyncMock(return_value=(FetchResult.OK, ""))
+        with (
+            patch("custom_components.foxess.sensor._set_battery_soc", new_callable=AsyncMock, return_value=(FetchResult.OK, "")),
+            patch("custom_components.foxess.sensor._set_device_setting", mock_device),
+        ):
+            await setSchedulerSegments(hass, "SN1", "key", [remaining])
+        mock_device.assert_called_once_with(hass, "SN1", "key", "MaxSoc", 100)
+
+
+# ---------------------------------------------------------------------------
+# setSchedulerSegmentsV3 — V3 scheduler API write function
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSetSchedulerSegmentsV3:
+    """Tests for setSchedulerSegmentsV3 — V3 scheduler API write function."""
+
+    _SCHEDULED = {
+        "startHour": 6, "startMinute": 0, "endHour": 12, "endMinute": 0,
+        "enable": 1, "workMode": "ForceCharge",
+        "extraParam": {"minSocOnGrid": 10, "fdSoc": 50, "fdPwr": 2000, "maxSoc": 100},
+    }
+    _REMAINING = {
+        "startHour": 0, "startMinute": 0, "endHour": 23, "endMinute": 59,
+        "enable": 1, "workMode": "SelfUse",
+        "extraParam": {"minSocOnGrid": 30, "maxSoc": 90},
+    }
+
+    def _make_hass(self, scheduler_enabled: bool = False, min_soc: int = 10) -> MagicMock:
+        hass = MagicMock()
+        hass.data = {
+            _FOXESS_DEVICES_KEY: {
+                "SN1": {
+                    "allData": {
+                        "scheduler": {"enabled": scheduler_enabled},
+                        "battery": {"minSoc": min_soc},
+                    }
+                }
+            }
+        }
+        return hass
+
+    async def _call(self, session: MagicMock, groups: list | None = None) -> tuple[FetchResult, str]:
+        hass = self._make_hass()
+        with (
+            patch("custom_components.foxess.sensor.waitforAPI", new_callable=AsyncMock),
+            patch("custom_components.foxess.sensor.GetAuth"),
+            patch("custom_components.foxess.sensor.async_get_clientsession", return_value=session),
+        ):
+            return await setSchedulerSegmentsV3(hass, "SN1", "api-key", groups or [self._SCHEDULED])
+
+    async def test_ok_on_errno_zero(self) -> None:
+        """Returns OK when API responds with errno 0."""
+        result, _ = await self._call(_aio_session({"errno": 0, "msg": "success"}))
+        assert result is FetchResult.OK
+
+    async def test_auth_failed_on_errno_40256(self) -> None:
+        """Returns AUTH_FAILED when API returns the invalid-key errno."""
+        result, _ = await self._call(_aio_session({"errno": 40256, "msg": "auth error"}))
+        assert result is FetchResult.AUTH_FAILED
+
+    async def test_error_on_non_zero_errno(self) -> None:
+        """Returns ERROR on a generic non-zero errno."""
+        result, _ = await self._call(_aio_session({"errno": 40001, "msg": "error"}))
+        assert result is FetchResult.ERROR
+
+    async def test_error_on_network_exception(self) -> None:
+        """Returns ERROR when the HTTP call raises an exception."""
+        result, _ = await self._call(_aio_session_raises(OSError("connection refused")))
+        assert result is FetchResult.ERROR
+
+    async def test_posts_to_v3_endpoint(self) -> None:
+        """POSTs to the V3 scheduler endpoint URL."""
+        session = _aio_session({"errno": 0, "msg": "success"})
+        await self._call(session)
+        url = session.post.call_args[0][0]
+        assert "/op/v3/device/scheduler/enable" in url
+
+    async def test_sends_is_default_false(self) -> None:
+        """Sends isDefault=False in the request body."""
+        session = _aio_session({"errno": 0, "msg": "success"})
+        await self._call(session)
+        payload = session.post.call_args[1]["json"]
+        assert payload["isDefault"] is False
+
+    async def test_remaining_group_is_sent_to_v3_endpoint(self) -> None:
+        """The remaining 00:00–23:59 group is included in the V3 scheduler API call."""
+        session = _aio_session({"errno": 0, "msg": "success"})
+        result, _ = await self._call(session, groups=[self._REMAINING])
+        assert result is FetchResult.OK
+        payload = session.post.call_args[1]["json"]
+        assert any(
+            g["startHour"] == 0 and g["endHour"] == 23 and g["endMinute"] == 59
+            for g in payload["groups"]
+        )
+
+    async def test_all_groups_sent_including_remaining(self) -> None:
+        """When both scheduled and remaining groups are present, all are sent to V3."""
+        session = _aio_session({"errno": 0, "msg": "success"})
+        result, _ = await self._call(session, groups=[self._SCHEDULED, self._REMAINING])
+        assert result is FetchResult.OK
+        payload = session.post.call_args[1]["json"]
+        assert len(payload["groups"]) == 2
+
+    async def test_no_battery_soc_or_device_setting_calls_for_v3(self) -> None:
+        """V3 does not call _set_battery_soc or _set_device_setting for the remaining group."""
+        mock_battery = AsyncMock(return_value=(FetchResult.OK, ""))
+        mock_device = AsyncMock(return_value=(FetchResult.OK, ""))
+        session = _aio_session({"errno": 0, "msg": "success"})
+        with (
+            patch("custom_components.foxess.sensor._set_battery_soc", mock_battery),
+            patch("custom_components.foxess.sensor._set_device_setting", mock_device),
+            patch("custom_components.foxess.sensor.waitforAPI", new_callable=AsyncMock),
+            patch("custom_components.foxess.sensor.GetAuth"),
+            patch("custom_components.foxess.sensor.async_get_clientsession", return_value=session),
+        ):
+            await setSchedulerSegmentsV3(self._make_hass(), "SN1", "key", [self._REMAINING])
+        mock_battery.assert_not_called()
+        mock_device.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _ws_save_schedule — V2/V3 version routing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestWsSaveScheduleVersionRouting:
+    """Tests that _ws_save_schedule dispatches to V2 or V3 based on device config."""
+
+    _GROUPS = [
+        {
+            "startHour": 6, "startMinute": 0, "endHour": 12, "endMinute": 0,
+            "enable": 1, "workMode": "SelfUse",
+            "extraParam": {"minSocOnGrid": 10, "fdSoc": 50, "fdPwr": 0, "maxSoc": 100},
+        }
+    ]
+
+    def _make_hass(self, sched_ver: str | None) -> MagicMock:
+        hass = MagicMock()
+        entry: dict = {"apiKey": "test-key"}
+        if sched_ver is not None:
+            entry[CONF_SCHEDULER_API_VERSION] = sched_ver
+        hass.data = {_FOXESS_DEVICES_KEY: {"SN1": entry}}
+        return hass
+
+    def _make_connection(self) -> MagicMock:
+        conn = MagicMock()
+        conn.send_result = MagicMock()
+        conn.send_error = MagicMock()
+        return conn
+
+    async def test_uses_v2_by_default(self) -> None:
+        """Calls setSchedulerSegments (V2) when no API version is configured."""
+        hass = self._make_hass(sched_ver=None)
+        msg = {"id": 1, "type": "foxess/save_schedule", "deviceSN": "SN1", "groups": self._GROUPS}
+        with (
+            patch("custom_components.foxess.sensor.setSchedulerSegments", new_callable=AsyncMock, return_value=(FetchResult.OK, "")) as mock_v2,
+            patch("custom_components.foxess.sensor.setSchedulerSegmentsV3", new_callable=AsyncMock, return_value=(FetchResult.OK, "")) as mock_v3,
+        ):
+            await _ws_save_schedule.__wrapped__(hass, self._make_connection(), msg)
+        mock_v2.assert_called_once()
+        mock_v3.assert_not_called()
+
+    async def test_uses_v2_when_explicitly_configured(self) -> None:
+        """Calls setSchedulerSegments (V2) when version is explicitly "v2"."""
+        hass = self._make_hass(sched_ver="v2")
+        msg = {"id": 2, "type": "foxess/save_schedule", "deviceSN": "SN1", "groups": self._GROUPS}
+        with (
+            patch("custom_components.foxess.sensor.setSchedulerSegments", new_callable=AsyncMock, return_value=(FetchResult.OK, "")) as mock_v2,
+            patch("custom_components.foxess.sensor.setSchedulerSegmentsV3", new_callable=AsyncMock, return_value=(FetchResult.OK, "")) as mock_v3,
+        ):
+            await _ws_save_schedule.__wrapped__(hass, self._make_connection(), msg)
+        mock_v2.assert_called_once()
+        mock_v3.assert_not_called()
+
+    async def test_uses_v3_when_configured(self) -> None:
+        """Calls setSchedulerSegmentsV3 when version is "v3"."""
+        hass = self._make_hass(sched_ver="v3")
+        msg = {"id": 3, "type": "foxess/save_schedule", "deviceSN": "SN1", "groups": self._GROUPS}
+        with (
+            patch("custom_components.foxess.sensor.setSchedulerSegments", new_callable=AsyncMock, return_value=(FetchResult.OK, "")) as mock_v2,
+            patch("custom_components.foxess.sensor.setSchedulerSegmentsV3", new_callable=AsyncMock, return_value=(FetchResult.OK, "")) as mock_v3,
+        ):
+            await _ws_save_schedule.__wrapped__(hass, self._make_connection(), msg)
+        mock_v3.assert_called_once()
+        mock_v2.assert_not_called()
+
+    async def test_v3_success_sends_result(self) -> None:
+        """Handler sends send_result when setSchedulerSegmentsV3 returns OK."""
+        hass = self._make_hass(sched_ver="v3")
+        conn = self._make_connection()
+        msg = {"id": 4, "type": "foxess/save_schedule", "deviceSN": "SN1", "groups": self._GROUPS}
+        with patch(
+            "custom_components.foxess.sensor.setSchedulerSegmentsV3",
+            new_callable=AsyncMock,
+            return_value=(FetchResult.OK, ""),
+        ):
+            await _ws_save_schedule.__wrapped__(hass, conn, msg)
+        conn.send_result.assert_called_once_with(4, {"ok": True})
+        conn.send_error.assert_not_called()
+
+    async def test_v3_auth_failure_sends_unauthorized(self) -> None:
+        """Handler sends ERR_UNAUTHORIZED when setSchedulerSegmentsV3 returns AUTH_FAILED."""
+        hass = self._make_hass(sched_ver="v3")
+        conn = self._make_connection()
+        msg = {"id": 5, "type": "foxess/save_schedule", "deviceSN": "SN1", "groups": self._GROUPS}
+        with patch(
+            "custom_components.foxess.sensor.setSchedulerSegmentsV3",
+            new_callable=AsyncMock,
+            return_value=(FetchResult.AUTH_FAILED, "bad key"),
+        ):
+            await _ws_save_schedule.__wrapped__(hass, conn, msg)
+        conn.send_error.assert_called_once()
+        assert "unauthorized" in conn.send_error.call_args[0][1]

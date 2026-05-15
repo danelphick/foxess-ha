@@ -15,7 +15,14 @@ const TEMPLATE_GROUPS = [
     minSocOnGrid: 10, fdSoc: 90, fdPwr: 0, maxSoc: 100 },
 ];
 
-function makeHass({ schedulerState = 'enabled', send = null, templates = [] } = {}) {
+const MIXED_TEMPLATE_GROUPS = [
+  { startMins: 0, endMins: 360, enable: 1, workMode: 'ForceCharge',
+    minSocOnGrid: 10, fdSoc: 90, fdPwr: 0, maxSoc: 100 },
+  { startMins: 720, endMins: 1080, enable: 0, workMode: 'ForceDischarge',
+    minSocOnGrid: 10, fdSoc: 30, fdPwr: 2600, maxSoc: 100 },
+];
+
+function makeHass({ schedulerState = 'enabled', send = null, templates = [], apiVersion = 'v2' } = {}) {
   const defaultSend = vi.fn().mockImplementation(msg => {
     if (msg.type === 'foxess/get_templates') return Promise.resolve({ templates });
     return Promise.resolve({ ok: true });
@@ -28,7 +35,7 @@ function makeHass({ schedulerState = 'enabled', send = null, templates = [] } = 
       },
       'sensor.foxess_scheduler_groups': {
         state: '0',
-        attributes: { groups: [], device_sn: DEVICE_SN },
+        attributes: { groups: [], device_sn: DEVICE_SN, scheduler_api_version: apiVersion },
       },
     },
     connection: {
@@ -264,5 +271,84 @@ describe('Save as template in edit modal', () => {
     exSel.dispatchEvent(new Event('change'));
 
     expect(card.shadowRoot.querySelector('.tpl-name-input').value).toBe('Morning');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V3 template loading — disabled groups are filtered out
+// ---------------------------------------------------------------------------
+
+describe('V3 template loading filters disabled groups', () => {
+  function openEditModal(card) {
+    card.shadowRoot.querySelector('.edit-btn').click();
+  }
+
+  it('dropdown load: keeps only enabled groups in V3 mode', async () => {
+    const templates = [{ name: 'Mixed', groups: MIXED_TEMPLATE_GROUPS }];
+    const card = mountCard(makeHass({ templates, apiVersion: 'v3' }));
+    await tick();
+    const sel = card.shadowRoot.querySelector('.tpl-select');
+    sel.value = '0';
+    sel.dispatchEvent(new Event('change'));
+    // Modal should open with only the enabled group
+    expect(card._editGroups).toHaveLength(1);
+    expect(card._editGroups[0].enable).toBe(1);
+  });
+
+  it('dropdown load: keeps all groups in V2 mode (including disabled)', async () => {
+    const templates = [{ name: 'Mixed', groups: MIXED_TEMPLATE_GROUPS }];
+    const card = mountCard(makeHass({ templates, apiVersion: 'v2' }));
+    await tick();
+    const sel = card.shadowRoot.querySelector('.tpl-select');
+    sel.value = '0';
+    sel.dispatchEvent(new Event('change'));
+    expect(card._editGroups).toHaveLength(2);
+  });
+
+  it('modal confirm load: keeps only enabled groups in V3 mode', async () => {
+    const templates = [{ name: 'Mixed', groups: MIXED_TEMPLATE_GROUPS }];
+    const send = vi.fn().mockImplementation(msg =>
+      Promise.resolve(msg.type === 'foxess/get_templates' ? { templates } : { ok: true })
+    );
+    const card = mountCard(makeHass({ send, templates, apiVersion: 'v3' }));
+    await tick();
+    openEditModal(card);
+    card.shadowRoot.querySelector('.tpl-load-open-btn').click();
+    const sel = card.shadowRoot.querySelector('.tpl-load-sel');
+    sel.value = '0';
+    card.shadowRoot.querySelector('.tpl-load-confirm-btn').click();
+    expect(card._editGroups).toHaveLength(1);
+    expect(card._editGroups[0].enable).toBe(1);
+  });
+
+  it('modal confirm load: keeps all groups in V2 mode (including disabled)', async () => {
+    const templates = [{ name: 'Mixed', groups: MIXED_TEMPLATE_GROUPS }];
+    const send = vi.fn().mockImplementation(msg =>
+      Promise.resolve(msg.type === 'foxess/get_templates' ? { templates } : { ok: true })
+    );
+    const card = mountCard(makeHass({ send, templates, apiVersion: 'v2' }));
+    await tick();
+    openEditModal(card);
+    card.shadowRoot.querySelector('.tpl-load-open-btn').click();
+    const sel = card.shadowRoot.querySelector('.tpl-load-sel');
+    sel.value = '0';
+    card.shadowRoot.querySelector('.tpl-load-confirm-btn').click();
+    expect(card._editGroups).toHaveLength(2);
+  });
+
+  it('modal confirm load: does not mutate the original template groups', async () => {
+    const templates = [{ name: 'Mixed', groups: MIXED_TEMPLATE_GROUPS }];
+    const send = vi.fn().mockImplementation(msg =>
+      Promise.resolve(msg.type === 'foxess/get_templates' ? { templates } : { ok: true })
+    );
+    const card = mountCard(makeHass({ send, templates, apiVersion: 'v3' }));
+    await tick();
+    openEditModal(card);
+    card.shadowRoot.querySelector('.tpl-load-open-btn').click();
+    const sel = card.shadowRoot.querySelector('.tpl-load-sel');
+    sel.value = '0';
+    card.shadowRoot.querySelector('.tpl-load-confirm-btn').click();
+    // Original template should still have both groups
+    expect(card._templates[0].groups).toHaveLength(2);
   });
 });
