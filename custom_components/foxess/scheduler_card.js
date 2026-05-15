@@ -97,6 +97,7 @@ class FoxESSSchedulerCard extends HTMLElement {
 
     const rawGroups = groupsEntityId ? (this._hass.states[groupsEntityId]?.attributes?.groups ?? []) : [];
     const schedApiVer = groupsEntityId ? (this._hass.states[groupsEntityId]?.attributes?.scheduler_api_version ?? 'v2') : 'v2';
+    this._minSoc = groupsEntityId ? (this._hass.states[groupsEntityId]?.attributes?.min_soc ?? 10) : 10;
     this._isV3 = schedApiVer === 'v3';
     const slotData = rawGroups.map((g, idx) => {
       const startMins = g.startHour * 60 + g.startMinute;
@@ -152,9 +153,12 @@ class FoxESSSchedulerCard extends HTMLElement {
       </tr>`;
     };
     const normalRows = normalSlots.map(s => makeRow(s, true)).join('');
-    const remainingRow = remainingSlot
-      ? `<tr><td colspan="7" class="remaining-sep"></td></tr>${makeRow(remainingSlot, false)}`
-      : '';
+    const sepVis = remainingSlot ? '' : ' style="visibility:collapse"';
+    const remainingRow =
+      `<tr${sepVis}><td colspan="7" class="remaining-sep"></td></tr>` +
+      (remainingSlot
+        ? makeRow(remainingSlot, false)
+        : `<tr style="visibility:collapse"><td colspan="2">Remaining Time Slots</td><td></td><td></td><td></td><td></td><td></td></tr>`);
     const rows = normalRows + remainingRow;
 
     const statusCls = enabledState === 'enabled' ? 'status-on' : 'status-off';
@@ -236,6 +240,7 @@ class FoxESSSchedulerCard extends HTMLElement {
     root.querySelector('.edit-btn')?.addEventListener('click', () => {
       this._openEditModal(slotData);
     });
+
 
     root.querySelector('.toggle-btn')?.addEventListener('click', async (e) => {
       if (!this._deviceSN) return;
@@ -359,9 +364,7 @@ class FoxESSSchedulerCard extends HTMLElement {
       const timeCells = showTime
         ? `<td class="time-start">${this._minsToStr(g.startMins)}</td><td class="time-end">${this._minsToStr(g.endMins)}</td>`
         : `<td colspan="2" style="color:var(--secondary-text-color,#888)">Remaining Time Slots</td>`;
-      const delCell = showTime
-        ? `<td><button class="del-btn" data-idx="${idx}" title="Delete"><ha-icon icon="mdi:delete"></ha-icon></button></td>`
-        : `<td></td>`;
+      const delCell = `<td><button class="del-btn" data-idx="${idx}" title="Delete"><ha-icon icon="mdi:delete"></ha-icon></button></td>`;
       const fdSocCell = showTime
         ? `<td><input type="number" class="num-input" data-idx="${idx}" data-field="fdSoc" value="${g.fdSoc}" min="0" max="100" step="1" style="width:3.5em"></td>`
         : `<td></td>`;
@@ -384,9 +387,14 @@ class FoxESSSchedulerCard extends HTMLElement {
     const modalColCount = this._isV3 ? 8 : 9;
     const normalRowHtml = groups.map((g, idx) => isRemaining(g) ? '' : makeEditRow(g, idx, true)).join('');
     const remainingIdx = groups.findIndex(isRemaining);
-    const remainingRowHtml = remainingIdx >= 0
-      ? `<tr><td colspan="${modalColCount}" class="remaining-sep"></td></tr>${makeEditRow(groups[remainingIdx], remainingIdx, false)}`
-      : '';
+    const emptyTds = '<td></td>'.repeat(modalColCount - 2);
+    const remainingRowHtml =
+      `<tr><td colspan="${modalColCount}" class="remaining-sep"></td></tr>` +
+      (remainingIdx >= 0
+        ? makeEditRow(groups[remainingIdx], remainingIdx, false)
+        : `<tr style="visibility:collapse"><td colspan="2">Remaining Time Slots</td>${emptyTds}</tr>` +
+          `<tr><td colspan="${modalColCount}" style="text-align:center;padding:6px 0">` +
+          `<button class="add-remaining-btn">+ Add remaining slot</button></td></tr>`);
     const rowHtml = normalRowHtml + remainingRowHtml;
 
     this._dialog.innerHTML = `
@@ -502,6 +510,8 @@ class FoxESSSchedulerCard extends HTMLElement {
         .remaining-sep { padding:5px 0 1px; border-top:1px solid var(--divider-color,#e0e0e0); }
         .del-btn { background:none; border:none; cursor:pointer; padding:2px 4px; color:var(--error-color,#f44336); opacity:.6; border-radius:4px; display:flex; align-items:center; }
         .del-btn:hover { opacity:1; background:rgba(244,67,54,.1); }
+        .add-remaining-btn { font-size:.75em; padding:2px 10px; border-radius:12px; border:1px dashed var(--primary-color,#03a9f4); background:transparent; cursor:pointer; color:var(--primary-color,#03a9f4); }
+        .add-remaining-btn:hover { background:color-mix(in srgb,var(--primary-color,#03a9f4) 15%,transparent); }
         .tpl-open-btn, .tpl-load-open-btn { background:var(--secondary-background-color,#f0f0f0); color:var(--primary-text-color,#333); font-size:.8em; padding:5px 12px; }
         .tpl-load-error { font-size:.8em; color:var(--error-color,#cf6679); display:block; min-height:1.1em; margin-top:4px; }
         .tpl-form { border-top:1px solid var(--divider-color,#e0e0e0); padding-top:10px; }
@@ -586,6 +596,15 @@ class FoxESSSchedulerCard extends HTMLElement {
     dlg.querySelector('.close-btn').addEventListener('click', () => dlg.close());
     dlg.querySelector('.cancel-btn').addEventListener('click', () => dlg.close());
     dlg.querySelector('.save-btn').addEventListener('click', () => this._saveSchedule());
+
+    dlg.querySelector('.add-remaining-btn')?.addEventListener('click', () => {
+      this._editGroups.push({
+        startMins: 0, endMins: 1439,
+        enable: 1, workMode: 'SelfUse',
+        minSocOnGrid: this._minSoc, fdSoc: this._minSoc, fdPwr: 0, maxSoc: 100,
+      });
+      this._renderModal();
+    });
 
     const tplForm    = dlg.querySelector('.tpl-form');
     const tplOpenBtn = dlg.querySelector('.tpl-open-btn');

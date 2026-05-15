@@ -2414,10 +2414,12 @@ class FoxESSSchedulerGroups(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         """Return the full groups list, device SN and scheduler API version as attributes."""
+        battery = self.coordinator.data.get("battery") or {}
         return {
             "groups": self.coordinator.data["scheduler"]["groups"],
             "device_sn": self._device_sn,
             "scheduler_api_version": self._scheduler_api_version,
+            "min_soc": battery.get("minSoc"),
         }
 
 

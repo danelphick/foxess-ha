@@ -147,6 +147,133 @@ describe('Max SoC - validation', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Add remaining slot button
+// ---------------------------------------------------------------------------
+
+function makeHassForRemaining(groups = [], minSoc = 10, sendOverride = null) {
+  const send = sendOverride ?? vi.fn().mockImplementation(msg => {
+    if (msg.type === 'foxess/get_templates') return Promise.resolve({ templates: [] });
+    return Promise.resolve({ ok: true });
+  });
+  return {
+    states: {
+      'sensor.foxess_scheduler_enabled': {
+        state: 'enabled',
+        attributes: { friendly_name: 'FoxESS Scheduler Enabled' },
+      },
+      'sensor.foxess_scheduler_groups': {
+        state: String(groups.length),
+        attributes: { groups, device_sn: DEVICE_SN, min_soc: minSoc },
+      },
+    },
+    connection: { sendMessagePromise: send },
+  };
+}
+
+const NORMAL_GROUP = {
+  startHour: 6, startMinute: 0, endHour: 12, endMinute: 0,
+  enable: 1, workMode: 'ForceCharge',
+  extraParam: { minSocOnGrid: 10, fdSoc: 90, fdPwr: 0, maxSoc: 100 },
+};
+
+const REMAINING_GROUP = {
+  startHour: 0, startMinute: 0, endHour: 23, endMinute: 59,
+  enable: 1, workMode: 'SelfUse',
+  extraParam: { minSocOnGrid: 10, fdSoc: 10, fdPwr: 0, maxSoc: 100 },
+};
+
+describe('Add remaining slot button', () => {
+  function openModal(card) {
+    card.shadowRoot.querySelector('.edit-btn').click();
+  }
+
+  it('shows button in edit modal when no remaining slot exists', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP]));
+    openModal(card);
+    expect(card.shadowRoot.querySelector('.add-remaining-btn')).not.toBeNull();
+  });
+
+  it('does not show button in edit modal when a remaining slot exists', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP, REMAINING_GROUP]));
+    openModal(card);
+    expect(card.shadowRoot.querySelector('.add-remaining-btn')).toBeNull();
+  });
+
+  it('shows button in edit modal when schedule is empty', () => {
+    const card = mountCard(makeHassForRemaining([]));
+    openModal(card);
+    expect(card.shadowRoot.querySelector('.add-remaining-btn')).not.toBeNull();
+  });
+
+  it('button is not shown in the read-only card view', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP]));
+    expect(card.shadowRoot.querySelector('.add-remaining-btn')).toBeNull();
+  });
+
+  it('clicking the button adds remaining slot and stays in modal', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP]));
+    openModal(card);
+    card.shadowRoot.querySelector('.add-remaining-btn').click();
+    expect(card.shadowRoot.querySelector('dialog').open).toBe(true);
+  });
+
+  it('new remaining slot has SelfUse work mode', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP]));
+    openModal(card);
+    card.shadowRoot.querySelector('.add-remaining-btn').click();
+    const remaining = card._editGroups.find(g => g.startMins === 0 && g.endMins === 1439);
+    expect(remaining).toBeDefined();
+    expect(remaining.workMode).toBe('SelfUse');
+  });
+
+  it('new remaining slot minSocOnGrid matches min_soc attribute', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP], 15));
+    openModal(card);
+    card.shadowRoot.querySelector('.add-remaining-btn').click();
+    const remaining = card._editGroups.find(g => g.startMins === 0 && g.endMins === 1439);
+    expect(remaining.minSocOnGrid).toBe(15);
+  });
+
+  it('new remaining slot maxSoc is 100', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP], 20));
+    openModal(card);
+    card.shadowRoot.querySelector('.add-remaining-btn').click();
+    const remaining = card._editGroups.find(g => g.startMins === 0 && g.endMins === 1439);
+    expect(remaining.maxSoc).toBe(100);
+  });
+
+  it('existing groups are preserved alongside new remaining slot', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP]));
+    openModal(card);
+    card.shadowRoot.querySelector('.add-remaining-btn').click();
+    expect(card._editGroups).toHaveLength(2);
+  });
+
+  it('defaults minSocOnGrid to 10 when min_soc attribute is absent', () => {
+    const card = mountCard(makeHass([makeGroup({ minSocOnGrid: 10, fdSoc: 90, fdPwr: 0, maxSoc: 100 })]));
+    openModal(card);
+    card.shadowRoot.querySelector('.add-remaining-btn').click();
+    const remaining = card._editGroups.find(g => g.startMins === 0 && g.endMins === 1439);
+    expect(remaining.minSocOnGrid).toBe(10);
+  });
+
+  it('delete button is present on the remaining slot row', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP, REMAINING_GROUP]));
+    openModal(card);
+    const remainingIdx = card._editGroups.findIndex(g => g.startMins === 0 && g.endMins === 1439);
+    expect(card.shadowRoot.querySelector(`.del-btn[data-idx="${remainingIdx}"]`)).not.toBeNull();
+  });
+
+  it('deleting the remaining slot removes it from editGroups', () => {
+    const card = mountCard(makeHassForRemaining([NORMAL_GROUP, REMAINING_GROUP]));
+    openModal(card);
+    const remainingIdx = card._editGroups.findIndex(g => g.startMins === 0 && g.endMins === 1439);
+    card.shadowRoot.querySelector(`.del-btn[data-idx="${remainingIdx}"]`).click();
+    expect(card._editGroups.find(g => g.startMins === 0 && g.endMins === 1439)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Save payload
 // ---------------------------------------------------------------------------
 
