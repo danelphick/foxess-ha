@@ -32,10 +32,12 @@
         "description": "Update settings for device {device_sn}.",
         "data": {
           "apiKey": "API Key",
-          "scheduler_api_version": "Scheduler API version"
+          "scheduler_api_version": "Scheduler API version",
+          "car_charging_entity": "EV Charging Sensor"
         },
         "data_description": {
-          "scheduler_api_version": "API version used to modify the schedule."
+          "scheduler_api_version": "API version used to modify the schedule.",
+          "car_charging_entity": "Binary sensor or sensor that is 'on' or 'charging' when the EV is charging. FoxESS will switch to Backup mode automatically."
         }
       }
     },

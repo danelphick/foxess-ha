@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aiohttp import ClientError
 from conftest import DOMAIN, MOCK_CONFIG
 from custom_components.foxess.config_flow import CONF_DEVICESN, _fetch_device_list
-from custom_components.foxess.sensor import YAML_CONFIGS_KEY
+from custom_components.foxess.sensor import CONF_CAR_CHARGING_ENTITY, YAML_CONFIGS_KEY
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -534,3 +534,64 @@ async def test_reauth_cannot_connect(
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reauth_confirm"
     assert result["errors"] == {"base": "cannot_connect"}
+
+
+# ---------------------------------------------------------------------------
+# Reconfigure — car charging entity
+# ---------------------------------------------------------------------------
+
+
+class TestReconfigureCarCharging:
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enable_custom_integrations")
+    async def test_reconfigure_saves_car_charging_entity(
+        self, hass: HomeAssistant, mock_setup_entry: AsyncMock
+    ) -> None:
+        """Reconfigure saves the car charging entity when provided."""
+        entry = MockConfigEntry(
+            domain=DOMAIN, unique_id=MOCK_CONFIG["deviceSN"], data=MOCK_CONFIG
+        )
+        entry.add_to_hass(hass)
+
+        result = await entry.start_reconfigure_flow(hass)
+
+        with _patch_fetch_device_list(([{"deviceSN": MOCK_CONFIG["deviceSN"]}], None)):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "apiKey": MOCK_CONFIG["apiKey"],
+                    "scheduler_api_version": "v2",
+                    CONF_CAR_CHARGING_ENTITY: "binary_sensor.ev_charging",
+                },
+            )
+
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert entry.data[CONF_CAR_CHARGING_ENTITY] == "binary_sensor.ev_charging"
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enable_custom_integrations")
+    async def test_reconfigure_clears_car_charging_entity(
+        self, hass: HomeAssistant, mock_setup_entry: AsyncMock
+    ) -> None:
+        """Reconfigure stores None when the entity field is left empty."""
+        data = {**MOCK_CONFIG, CONF_CAR_CHARGING_ENTITY: "binary_sensor.ev_charging"}
+        entry = MockConfigEntry(
+            domain=DOMAIN, unique_id=MOCK_CONFIG["deviceSN"], data=data
+        )
+        entry.add_to_hass(hass)
+
+        result = await entry.start_reconfigure_flow(hass)
+
+        with _patch_fetch_device_list(([{"deviceSN": MOCK_CONFIG["deviceSN"]}], None)):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "apiKey": MOCK_CONFIG["apiKey"],
+                    "scheduler_api_version": "v2",
+                },
+            )
+
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert entry.data.get(CONF_CAR_CHARGING_ENTITY) is None

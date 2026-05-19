@@ -13,6 +13,8 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_NAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -22,6 +24,7 @@ from homeassistant.helpers.selector import (
 from .sensor import (
     _ENDPOINT_OA_DOMAIN,
     CONF_APIKEY,
+    CONF_CAR_CHARGING_ENTITY,
     CONF_DEVICEID,
     CONF_DEVICESN,
     CONF_EXTPV,
@@ -196,6 +199,7 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
                     data_updates={
                         CONF_APIKEY: user_input[CONF_APIKEY],
                         CONF_SCHEDULER_API_VERSION: user_input[CONF_SCHEDULER_API_VERSION],
+                        CONF_CAR_CHARGING_ENTITY: user_input.get(CONF_CAR_CHARGING_ENTITY) or None,
                     },
                 )
             errors["base"] = error
@@ -218,11 +222,15 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
                                 mode=SelectSelectorMode.DROPDOWN,
                             )
                         ),
+                        vol.Optional(CONF_CAR_CHARGING_ENTITY): EntitySelector(
+                            EntitySelectorConfig(domain=["binary_sensor", "sensor"])
+                        ),
                     }
                 ),
                 {
                     CONF_APIKEY: reconfigure_entry.data.get(CONF_APIKEY, ""),
                     CONF_SCHEDULER_API_VERSION: current_version,
+                    CONF_CAR_CHARGING_ENTITY: reconfigure_entry.data.get(CONF_CAR_CHARGING_ENTITY),
                 },
             ),
             description_placeholders={"device_sn": reconfigure_entry.data[CONF_DEVICESN]},

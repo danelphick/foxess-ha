@@ -71,6 +71,7 @@ _ENDPOINT_OA_SCHEDULER_ENABLE = "/op/v2/device/scheduler/enable"
 _ENDPOINT_OA_SCHEDULER_SEGMENTS_V3 = "/op/v3/device/scheduler/get"
 _ENDPOINT_OA_SCHEDULER_ENABLE_V3 = "/op/v3/device/scheduler/enable"
 _ENDPOINT_OA_DEVICE_SETTINGS_SET = "/op/v0/device/setting/set"
+_ENDPOINT_OA_DEVICE_SETTINGS_GET = "/op/v0/device/setting/get"
 _FOXESS_DEVICES_KEY = "foxess_devices"
 _FOXESS_TEMPLATES_STORE_KEY = "foxess_templates_store"
 _TEMPLATES_STORAGE_KEY = "foxess.templates"
@@ -119,6 +120,7 @@ CONF_GET_VARIABLES = "Restrict"
 CONF_V1_API = "Use_V1_Api"
 CONF_EVO = "Evo"
 CONF_SCHEDULER_API_VERSION = "scheduler_api_version"
+CONF_CAR_CHARGING_ENTITY = "car_charging_entity"
 
 SCHEDULER_API_V2 = "v2"
 SCHEDULER_API_V3 = "v3"
@@ -650,6 +652,14 @@ async def _async_setup_foxess(hass, config, async_add_entities, config_entry=Non
             "FoxESS Cloud initialisation failed, Fatal Error - correct error and restart Home Assistant"
         )
         return False
+
+    car_entity = config.get(CONF_CAR_CHARGING_ENTITY)
+    if car_entity and config_entry is not None:
+        from .car_charging import CarChargingManager  # noqa: PLC0415
+
+        manager = CarChargingManager(hass, devicesn, apiKey, coordinator, allData)
+        await manager.async_setup(car_entity)
+        config_entry.async_on_unload(manager.async_teardown)
 
     def make(cls, *args):
         return cls(coordinator, name, deviceID, *args)
@@ -1208,7 +1218,7 @@ async def _set_device_setting(
     devicesn: str,
     apiKey: str,
     key: str,
-    value: int,
+    value: int | str,
 ) -> tuple[FetchResult, str]:
     """POST a single key/value pair to /op/v0/device/setting/set."""
     await waitforAPI()
@@ -1237,6 +1247,34 @@ async def _set_device_setting(
     return (
         FetchResult.AUTH_FAILED if data.get("errno") in _AUTH_ERRNO else FetchResult.ERROR,
         api_msg,
+    )
+
+
+async def _get_device_setting(
+    hass: HomeAssistant,
+    devicesn: str,
+    apiKey: str,
+    key: str,
+) -> tuple[FetchResult, str | None]:
+    """GET /op/v0/device/setting/get for a single key; return (result, value_str)."""
+    await waitforAPI()
+    path = f"{_ENDPOINT_OA_DEVICE_SETTINGS_GET}?sn={devicesn}&key={key}"
+    headerData = GetAuth().get_signature(token=apiKey, path=path)
+    session = async_get_clientsession(hass, verify_ssl=DEFAULT_VERIFY_SSL)
+    try:
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        async with session.get(
+            _ENDPOINT_OA_DOMAIN + path, headers=headerData, timeout=timeout
+        ) as resp:
+            data = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("_get_device_setting: network error (key=%s)", key)
+        return FetchResult.ERROR, None
+    if data.get("errno") == 0:
+        return FetchResult.OK, data.get("result", {}).get("value")
+    return (
+        FetchResult.AUTH_FAILED if data.get("errno") in _AUTH_ERRNO else FetchResult.ERROR,
+        None,
     )
 
 
