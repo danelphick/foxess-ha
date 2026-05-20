@@ -340,9 +340,11 @@ async def _async_update_data(
     _LOGGER.debug("Time now: %s, last %s", hournow, timeslice["last_hour"])
     tslice = timeslice[devicesn] + 1  # increment current device time slice
     timeslice[devicesn] = tslice
+    updated = False
     if tslice % 5 == 0:
         _LOGGER.debug("Main Poll, interval: %s, %s", devicesn, timeslice[devicesn])
         # try the openapi see if we get a response
+        updated = True
         geterror = FetchResult.OK
         if tslice % 15 == 0:
             # get device detail at startup, then every 15 minutes to save api calls
@@ -410,7 +412,8 @@ async def _async_update_data(
     timeslice["last_hour"] = hournow
     timeslice[devicesn] = tslice
 
-    _LOGGER.debug(allData)
+    if updated:
+        _LOGGER.debug(allData)
 
     return allData
 
@@ -987,11 +990,7 @@ async def getOADeviceDetail(hass, allData, devicesn, apiKey, *, v1_api: bool):
     if response["errno"] == 0 and (
         response["msg"] == "success" or response["msg"] == "Operation successful"
     ):
-        ResponseTime = round(time.time() * 1000) - timestamp
-        if ResponseTime > 0:
-            allData["raw"]["ResponseTime"] = ResponseTime
-        else:
-            allData["raw"]["ResponseTime"] = 0
+        allData["raw"]["ResponseTime"] = max(round(time.time() * 1000) - timestamp, 0)
         _LOGGER.debug("OA Device Detail Good Response: %s", response["result"])
         result = response["result"]
         allData["addressbook"] = result
@@ -1050,11 +1049,7 @@ async def getOADeviceList(hass, allData, devicesn, apiKey):
     if response["errno"] == 0 and (
         response["msg"] == "success" or response["msg"] == "Operation successful"
     ):
-        ResponseTime = round(time.time() * 1000) - timestamp
-        if ResponseTime > 0:
-            allData["raw"]["ResponseTime"] = ResponseTime
-        else:
-            allData["raw"]["ResponseTime"] = 0
+        allData["raw"]["ResponseTime"] = max(round(time.time() * 1000) - timestamp, 0)
         _LOGGER.debug("OA Device List Good Response: %s", response["result"])
         result = json.loads(restOADeviceList.data)["result"]["data"]
         for item in result:
@@ -1741,8 +1736,7 @@ async def getRaw(
     if response["errno"] == 0 and (
         response["msg"] == "success" or response["msg"] == "Operation successful"
     ):
-        ResponseTime = round(time.time() * 1000) - timestamp
-        allData["raw"]["ResponseTime"] = max(ResponseTime, 0)
+        allData["raw"]["ResponseTime"] = max(round(time.time() * 1000) - timestamp, 0)
 
         test = json.loads(restOADeviceVariables.data)["result"]
 
