@@ -89,9 +89,11 @@ class CarChargingManager:
         old_charging = old_state is not None and self._is_charging_state(old_state)
 
         if new_charging and not old_charging:
+            _LOGGER.debug("Car charging started")
             self._car_is_charging = True
             self._hass.async_create_task(self._evaluate_and_manage())
         elif not new_charging and old_charging:
+            _LOGGER.debug("Car charging ended")
             self._car_is_charging = False
             self._hass.async_create_task(self._restore_if_managed())
 
