@@ -78,7 +78,7 @@ class CarChargingManager:
 
     @staticmethod
     def _is_charging_state(state: Any) -> bool:
-        return state.state in {"on", "true", "charging", "active"}
+        return state.state.lower() in {"on", "true", "charging", "active"}
 
     @callback
     def _handle_charging_state_change(self, event: Event) -> None:
