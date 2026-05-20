@@ -1933,6 +1933,7 @@ class _RawDataSensor(CoordinatorEntity, SensorEntity):
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
         self._keyValue = keyValue
+        self._none_reported = False
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
@@ -1942,7 +1943,9 @@ class _RawDataSensor(CoordinatorEntity, SensorEntity):
         """Return value from raw data."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
+                if not self._none_reported:
+                    _LOGGER.debug("%s None", self._keyValue)
+                    self._none_reported = True
             else:
                 return self.coordinator.data["raw"][self._keyValue]
         return None
@@ -1965,6 +1968,7 @@ class _FixedRawDataSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID):
         """Initialize the sensor entity."""
         super().__init__(coordinator=coordinator)
+        self._none_reported = False
         _LOGGER.debug("Initiating Entity - %s", self._name_value)
         self._attr_name = f"{name} - {self._name_value}"
         self._attr_unique_id = f"{deviceID}{self._unique_value}"
@@ -1978,7 +1982,9 @@ class _FixedRawDataSensor(CoordinatorEntity, SensorEntity):
         """Return value from raw data, passed through _transform."""
         if self.coordinator.data["online"] and self.coordinator.data["raw"]:
             if self._key_value not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._key_value)
+                if not self._none_reported:
+                    _LOGGER.debug("%s None", self._key_value)
+                    self._none_reported = True
             else:
                 return self._transform(self.coordinator.data["raw"][self._key_value])
         return None
@@ -2063,6 +2069,7 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
         self._nameValue = nameValue
         self._uniqueValue = uniqueValue
         self._keyValue = keyValue
+        self._none_reported = False
         _LOGGER.debug("Initiating Entity - %s", self._nameValue)
         self._attr_name = f"{name} - {self._nameValue}"
         self._attr_unique_id = f"{deviceID}{self._uniqueValue}"
@@ -2072,7 +2079,9 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
         """Return today's generated energy in kWh from the daily generation report."""
         value = self.coordinator.data["reportDailyGeneration"].get(self._keyValue)
         if value is None:
-            _LOGGER.debug("%s None", self._keyValue)
+            if not self._none_reported:
+                _LOGGER.debug("%s None", self._keyValue)
+                self._none_reported = True
             return None
         return round(value, 3) if value > 0 else 0
 
@@ -2108,6 +2117,7 @@ class _ReportSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID):
         """Initialize the report sensor entity."""
         super().__init__(coordinator=coordinator)
+        self._none_reported = False
         _LOGGER.debug("Initiating Entity - %s", self._name_value)
         self._attr_name = f"{name} - {self._name_value}"
         self._attr_unique_id = f"{deviceID}{self._unique_value}"
@@ -2116,7 +2126,9 @@ class _ReportSensor(CoordinatorEntity, SensorEntity):
     def native_value(self) -> float | None:
         """Return value from report data."""
         if self._key_value not in self.coordinator.data["report"]:
-            _LOGGER.debug("%s None", self._key_value)
+            if not self._none_reported:
+                _LOGGER.debug("%s None", self._key_value)
+                self._none_reported = True
             return None
         value = self.coordinator.data["report"][self._key_value]
         return round(value, 3) if self._round else value
@@ -2200,6 +2212,7 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID):
         """Initialize the inverter status sensor entity."""
         super().__init__(coordinator=coordinator)
+        self._none_reported = False
         _LOGGER.debug("Initiating Entity - Inverter")
         self._attr_name = name + " - Inverter"
         self._attr_unique_id = deviceID + "Inverter"
@@ -2213,7 +2226,9 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
             and int(self.coordinator.data["addressbook"]["status"]) in [1, 2, 3]
         ):
             if "status" not in self.coordinator.data["addressbook"]:
-                _LOGGER.debug("addressbook status None")
+                if not self._none_reported:
+                    _LOGGER.debug("addressbook status None")
+                    self._none_reported = True
             elif int(self.coordinator.data["addressbook"]["status"]) == 1:
                 return "on-line"
             elif int(self.coordinator.data["addressbook"]["status"]) == 2:
@@ -2251,7 +2266,9 @@ class FoxESSRunningState(_RawDataSensor):
         """Return inverter running state code with a descriptive label."""
         if self.coordinator.data["raw"]:
             if self._keyValue not in self.coordinator.data["raw"]:
-                _LOGGER.debug("%s None", self._keyValue)
+                if not self._none_reported:
+                    _LOGGER.debug("%s None", self._keyValue)
+                    self._none_reported = True
             else:
                 res = self.coordinator.data["raw"][self._keyValue]
                 if res == "160":
@@ -2366,6 +2383,7 @@ class _BatterySettingsSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID):
         """Initialize the sensor entity."""
         super().__init__(coordinator=coordinator)
+        self._none_reported = False
         _LOGGER.debug("Initiating Entity - %s", self._name_value)
         self._attr_name = f"{name} - {self._name_value}"
         self._attr_unique_id = f"{deviceID}{self._unique_value}"
@@ -2375,7 +2393,9 @@ class _BatterySettingsSensor(CoordinatorEntity, SensorEntity):
         """Return value from battery settings data."""
         if self.coordinator.data["online"] and self.coordinator.data["battery"]:
             if self._key_value not in self.coordinator.data["battery"]:
-                _LOGGER.debug("%s None", self._key_value)
+                if not self._none_reported:
+                    _LOGGER.debug("%s None", self._key_value)
+                    self._none_reported = True
             else:
                 return self.coordinator.data["battery"][self._key_value]
         return None
@@ -2492,6 +2512,7 @@ class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID):
         """Initialize the API response time sensor entity."""
         super().__init__(coordinator=coordinator)
+        self._none_reported = False
         _LOGGER.debug("Initiating Entity - Response Time")
         self._attr_name = name + " - Response Time"
         self._attr_unique_id = deviceID + "response-time"
@@ -2500,7 +2521,9 @@ class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
     def native_value(self) -> float | None:
         """Return the last FoxESS API response time in milliseconds."""
         if "ResponseTime" not in self.coordinator.data["raw"]:
-            _LOGGER.debug("ResponseTime None")
+            if not self._none_reported:
+                _LOGGER.debug("ResponseTime None")
+                self._none_reported = True
         else:
             return self.coordinator.data["raw"]["ResponseTime"]
         return None
