@@ -61,7 +61,7 @@ class CarChargingManager:
 
         # Listen for changes to scheduler state.
         self._unsubs.append(
-            self._coordinator.async_add_listener(self._watch_for_scheduler_changes)
+            self._coordinator.async_add_listener(self._handle_coordinator_update)
         )
 
         state = self._hass.states.get(entity_id)
@@ -98,7 +98,7 @@ class CarChargingManager:
             self._hass.async_create_task(self._restore_if_managed())
 
     @callback
-    def _watch_for_scheduler_changes(self) -> None:
+    def _handle_coordinator_update(self) -> None:
         if not self._car_is_charging:
             return
 
