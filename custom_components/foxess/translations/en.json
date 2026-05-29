@@ -13,11 +13,19 @@
         "description": "Select your FoxESS device. The device type is shown after the serial number.",
         "data": {
           "deviceSN": "Device",
-          "name": "Name",
-          "extendPV": "Extended PV strings (PV7–18)"
+          "name": "Name"
+        }
+      },
+      "device_advanced": {
+        "title": "Advanced Configuration",
+        "description": "Configure additional settings for device {device_sn}.",
+        "data": {
+          "extendPV": "Extended PV strings (PV7–18)",
+          "deviceID": "Device ID"
         },
         "data_description": {
-          "extendPV": "Enable for Fox R series inverters or any inverter with more than 6 PV strings. Reads voltage, current, and power for PV strings 7–18."
+          "extendPV": "Enable for Fox R series inverters or any inverter with more than 6 PV strings. Reads voltage, current, and power for PV strings 7–18.",
+          "deviceID": "Only required when migrating from a YAML configuration to preserve entity history. Leave blank to use the serial number ({device_sn}) as the device ID."
         }
       },
       "reauth_confirm": {

@@ -160,6 +160,7 @@ async def test_create_entry(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], STEP2_INPUT
     )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -193,6 +194,7 @@ async def test_create_entry_default_name(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], step2_no_name
     )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -217,6 +219,7 @@ async def test_duplicate_device_shows_error(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], STEP2_INPUT
     )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
@@ -257,6 +260,7 @@ async def test_duplicate_name_rejected(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], STEP2_INPUT
     )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
@@ -595,3 +599,104 @@ class TestReconfigureCarCharging:
         assert result["type"] is FlowResultType.ABORT
         assert result["reason"] == "reconfigure_successful"
         assert entry.data.get(CONF_CAR_CHARGING_ENTITY) is None
+
+
+# ---------------------------------------------------------------------------
+# Device advanced step
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_device_step_always_shows_advanced_step(hass: HomeAssistant) -> None:
+    """Device step always transitions to the device_advanced step."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    with _patch_fetch_device_list((MOCK_DEVICES, None)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], STEP1_INPUT
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], STEP2_INPUT
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "device_advanced"
+    assert result["description_placeholders"] == {"device_sn": STEP2_INPUT["deviceSN"]}
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_device_advanced_with_custom_device_id(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """A custom device ID provided in the advanced step is stored in entry data."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    with _patch_fetch_device_list((MOCK_DEVICES, None)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], STEP1_INPUT
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], STEP2_INPUT
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"deviceID": "my-custom-device-id"},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["deviceID"] == "my-custom-device-id"
+    assert result["data"]["deviceSN"] == STEP2_INPUT["deviceSN"]
+    assert result["result"].unique_id == STEP2_INPUT["deviceSN"]
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_device_advanced_empty_device_id_uses_sn(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """Leaving device ID blank in the advanced step falls back to the SN."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    with _patch_fetch_device_list((MOCK_DEVICES, None)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], STEP1_INPUT
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], STEP2_INPUT
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"deviceID": ""},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["deviceID"] == STEP2_INPUT["deviceSN"]
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_device_advanced_extend_pv_stored(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """extendPV set in the advanced step is stored in entry data."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    with _patch_fetch_device_list((MOCK_DEVICES, None)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], STEP1_INPUT
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], STEP2_INPUT
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"extendPV": True},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["extendPV"] is True

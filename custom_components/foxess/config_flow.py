@@ -93,6 +93,8 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialise the config flow."""
         self._api_key: str | None = None
         self._devices: list[dict] | None = None
+        self._selected_device_sn: str | None = None
+        self._selected_name: str | None = None
 
     async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Handle the initial step — collect API key and discover devices."""
@@ -144,17 +146,9 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors[CONF_NAME] = "name_already_in_use"
 
             if not errors:
-                await self.async_set_unique_id(device_sn)
-                return self.async_create_entry(
-                    title=device_sn,
-                    data={
-                        CONF_APIKEY: self._api_key,
-                        CONF_DEVICESN: device_sn,
-                        CONF_DEVICEID: device_sn,
-                        CONF_NAME: name,
-                        CONF_EXTPV: user_input.get(CONF_EXTPV, False),
-                    },
-                )
+                self._selected_device_sn = device_sn
+                self._selected_name = name
+                return await self.async_step_device_advanced()
 
         options = [
             SelectOptionDict(
@@ -176,12 +170,42 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
                             )
                         ),
                         vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
-                        vol.Optional(CONF_EXTPV, default=False): bool,
                     }
                 ),
                 user_input or {},
             ),
             errors=errors,
+        )
+
+    async def async_step_device_advanced(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Handle extended PV config and optional device ID override for YAML migration."""
+        assert self._selected_device_sn is not None
+
+        if user_input is not None:
+            device_id = user_input.get(CONF_DEVICEID) or self._selected_device_sn
+            await self.async_set_unique_id(self._selected_device_sn)
+            return self.async_create_entry(
+                title=self._selected_device_sn,
+                data={
+                    CONF_APIKEY: self._api_key,
+                    CONF_DEVICESN: self._selected_device_sn,
+                    CONF_DEVICEID: device_id,
+                    CONF_NAME: self._selected_name,
+                    CONF_EXTPV: user_input.get(CONF_EXTPV, False),
+                },
+            )
+
+        return self.async_show_form(
+            step_id="device_advanced",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_EXTPV, default=False): bool,
+                    vol.Optional(CONF_DEVICEID, default=""): str,
+                }
+            ),
+            description_placeholders={"device_sn": self._selected_device_sn},
         )
 
     async def async_step_reconfigure(
