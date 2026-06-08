@@ -1234,7 +1234,7 @@ async def _set_device_setting(
         return FetchResult.ERROR, "Network error — please try again."
 
     if data.get("errno") == 0:
-        _LOGGER.debug("_set_device_setting: success (key=%s)", key)
+        _LOGGER.debug("_set_device_setting: success (key=%s, value=%s)", key, value)
         return FetchResult.OK, ""
 
     _LOGGER.error("_set_device_setting: bad response (key=%s) %s", key, data)
