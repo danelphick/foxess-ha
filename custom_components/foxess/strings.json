@@ -25,7 +25,7 @@
         },
         "data_description": {
           "extendPV": "Enable for Fox R series inverters or any inverter with more than 6 PV strings. Reads voltage, current, and power for PV strings 7–18.",
-          "deviceID": "Only required when migrating from a YAML configuration to preserve entity history. Leave blank to use the serial number ({device_sn}) as the device ID."
+          "deviceID": "Only set this when migrating from a YAML configuration. Must match the deviceID value in your YAML config — it is used as the unique ID prefix for all entities, so a mismatch will cause entities to be treated as new with no history or customisations. Leave blank to use the serial number ({device_sn})."
         }
       },
       "reauth_confirm": {
