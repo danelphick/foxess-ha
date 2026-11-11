@@ -13,13 +13,21 @@
         "description": "Select your FoxESS device. The device type is shown after the serial number.",
         "data": {
           "deviceSN": "Device",
-          "name": "Name",
+          "name": "Name"
+        }
+      },
+      "device_advanced": {
+        "title": "Advanced Configuration",
+        "description": "Configure additional settings for device {device_sn}.",
+        "data": {
           "extendPV": "Extended PV strings (PV7–18)",
-          "reduceAPICalls": "Reduced API calls mode (Eco mode)"
+          "reduceAPICalls": "Reduced API calls mode (Eco mode)",
+          "deviceID": "Device ID"
         },
         "data_description": {
           "extendPV": "Enable for Fox R series inverters or any inverter with more than 6 PV strings. Reads voltage, current, and power for PV strings 7–18.",
-          "reduceAPICalls": "Polls telemetry every 10 minutes instead of 5 minutes to stay well below the FoxESS 1,440 daily API quota."
+          "reduceAPICalls": "Polls telemetry every 10 minutes instead of 5 minutes to stay well below the FoxESS 1,440 daily API quota.",
+          "deviceID": "Only set this when migrating from a YAML configuration. Must match the deviceID value in your YAML config — it is used as the unique ID prefix for all entities, so a mismatch will cause entities to be treated as new with no history or customisations. Leave blank to use the serial number ({device_sn})."
         }
       },
       "reconfigure": {
