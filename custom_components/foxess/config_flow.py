@@ -17,6 +17,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     ConstantSelector,
     ConstantSelectorConfig,
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -34,6 +36,7 @@ from .const import (
     _AUTH_ERRNO,
     _ENDPOINT_OA_DOMAIN,
     CONF_APIKEY,
+    CONF_CAR_CHARGING_ENTITY,
     CONF_DEVICEID,
     CONF_DEVICESN,
     CONF_ENERGY_GENERATED_SANITY,
@@ -309,6 +312,10 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_SCHEDULER_API_VERSION: user_input[
                             CONF_SCHEDULER_API_VERSION
                         ],
+                        CONF_CAR_CHARGING_ENTITY: user_input.get(
+                            CONF_CAR_CHARGING_ENTITY
+                        )
+                        or None,
                     },
                     options=options,
                 )
@@ -337,11 +344,17 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
                                 mode=SelectSelectorMode.DROPDOWN,
                             )
                         ),
+                        vol.Optional(CONF_CAR_CHARGING_ENTITY): EntitySelector(
+                            EntitySelectorConfig(domain=["binary_sensor", "sensor"])
+                        ),
                     }
                 ),
                 {
                     CONF_APIKEY: current_api_key,
                     CONF_SCHEDULER_API_VERSION: current_version,
+                    CONF_CAR_CHARGING_ENTITY: reconfigure_entry.data.get(
+                        CONF_CAR_CHARGING_ENTITY
+                    ),
                 },
             ),
             description_placeholders={

@@ -13,7 +13,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
 from .api import FoxESSApiClient
-from .const import DOMAIN, FetchResult, MAX_SCHEDULER_GROUPS
+from .car_charging import CarChargingManager
+from .const import CONF_CAR_CHARGING_ENTITY, DOMAIN, FetchResult, MAX_SCHEDULER_GROUPS
 from .scheduler import async_setup_scheduler_card
 from .sensor import FoxDataUpdateCoordinator
 
@@ -202,6 +203,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "client": client,
     }
+
+    car_entity = config.get(CONF_CAR_CHARGING_ENTITY)
+    if car_entity:
+        manager = CarChargingManager(hass, coordinator)
+        await manager.async_setup(car_entity)
+        entry.async_on_unload(manager.async_teardown)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     async_setup_services(hass)

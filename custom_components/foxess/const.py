@@ -23,6 +23,7 @@ DEFAULT_REDUCE_API_CALLS = False
 CONF_SHOW_UNKNOWN_ZERO = "show_unknown_zero"
 DEFAULT_SHOW_UNKNOWN_ZERO = False
 CONF_SCHEDULER_API_VERSION = "scheduler_api_version"
+CONF_CAR_CHARGING_ENTITY = "car_charging_entity"
 SCHEDULER_API_V2 = "v2"
 SCHEDULER_API_V3 = "v3"
 

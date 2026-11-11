@@ -119,3 +119,32 @@ async def test_sensor_setup_entry_consumes_coordinator(hass):
         await sensor_async_setup_entry(hass, entry, mock_add_entities)
         mock_setup_foxess.assert_called_once()
         assert mock_setup_foxess.call_args[1].get("coordinator") == mock_coordinator
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+@pytest.mark.asyncio
+async def test_car_charging_manager_set_up_when_configured(hass):
+    """A car charging manager is started and torn down with the entry when configured."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_DEVICESN: "SN123456",
+            CONF_APIKEY: "mock_key",
+            "car_charging_entity": "binary_sensor.ev_charging",
+        },
+        entry_id="test_entry_car",
+    )
+    entry.add_to_hass(hass)
+    with patch("custom_components.foxess.PLATFORMS", [Platform.SENSOR]), \
+         patch("custom_components.foxess.sensor.async_setup_entry", return_value=True), \
+         patch("custom_components.foxess.FoxDataUpdateCoordinator.async_config_entry_first_refresh", new_callable=AsyncMock), \
+         patch("custom_components.foxess.CarChargingManager") as manager_cls:
+        manager_cls.return_value.async_setup = AsyncMock()
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        manager_cls.return_value.async_setup.assert_awaited_once_with("binary_sensor.ev_charging")
+
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        manager_cls.return_value.async_teardown.assert_called_once()
