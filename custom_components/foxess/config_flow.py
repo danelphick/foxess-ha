@@ -41,6 +41,7 @@ from .const import (
     CONF_EXTPV,
     CONF_GET_VARIABLES,
     CONF_REDUCE_API_CALLS,
+    CONF_SCHEDULER_API_VERSION,
     CONF_SHOW_UNKNOWN_ZERO,
     CONF_V1_API,
     CONF_XTZONE,
@@ -49,6 +50,8 @@ from .const import (
     DEFAULT_REDUCE_API_CALLS,
     DEFAULT_SHOW_UNKNOWN_ZERO,
     DOMAIN,
+    SCHEDULER_API_V2,
+    SCHEDULER_API_V3,
     YAML_CONFIGS_KEY,
 )
 
@@ -255,6 +258,71 @@ class FoxESSConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 suggested_values,
             ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Allow the user to update the API key and schedule API version."""
+        reconfigure_entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            api_key = str(user_input[CONF_APIKEY]).strip()
+            _, error = await _fetch_device_list(self.hass, api_key)
+            if error in (None, "no_devices"):
+                # An API key saved in the options would override the new one.
+                options = {
+                    k: v
+                    for k, v in reconfigure_entry.options.items()
+                    if k != CONF_APIKEY
+                }
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates={
+                        CONF_APIKEY: api_key,
+                        CONF_SCHEDULER_API_VERSION: user_input[
+                            CONF_SCHEDULER_API_VERSION
+                        ],
+                    },
+                    options=options,
+                )
+            errors["base"] = error
+
+        current_version = reconfigure_entry.data.get(
+            CONF_SCHEDULER_API_VERSION, SCHEDULER_API_V2
+        )
+        current_api_key = reconfigure_entry.options.get(
+            CONF_APIKEY, reconfigure_entry.data.get(CONF_APIKEY, "")
+        )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(
+                    {
+                        vol.Required(CONF_APIKEY): TextSelector(
+                            TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                        ),
+                        vol.Required(CONF_SCHEDULER_API_VERSION): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[
+                                    SelectOptionDict(value=SCHEDULER_API_V2, label="V2"),
+                                    SelectOptionDict(value=SCHEDULER_API_V3, label="V3"),
+                                ],
+                                mode=SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    }
+                ),
+                {
+                    CONF_APIKEY: current_api_key,
+                    CONF_SCHEDULER_API_VERSION: current_version,
+                },
+            ),
+            description_placeholders={
+                "device_sn": reconfigure_entry.data[CONF_DEVICESN]
+            },
             errors=errors,
         )
 

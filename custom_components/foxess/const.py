@@ -22,6 +22,9 @@ CONF_REDUCE_API_CALLS = "reduceAPICalls"
 DEFAULT_REDUCE_API_CALLS = False
 CONF_SHOW_UNKNOWN_ZERO = "show_unknown_zero"
 DEFAULT_SHOW_UNKNOWN_ZERO = False
+CONF_SCHEDULER_API_VERSION = "scheduler_api_version"
+SCHEDULER_API_V2 = "v2"
+SCHEDULER_API_V3 = "v3"
 
 # Timing and Intervals
 SCAN_MINUTES = 1  # number of minutes between coordinator refresh evaluations
@@ -43,6 +46,8 @@ _ENDPOINT_OA_SCHEDULER_FLAG_SET = "/op/v1/device/scheduler/set/flag"
 _ENDPOINT_OA_SCHEDULER_FLAG_GET = "/op/v1/device/scheduler/get/flag"
 _ENDPOINT_OA_SCHEDULER_ENABLE = "/op/v2/device/scheduler/enable"
 _ENDPOINT_OA_SCHEDULER_GET = "/op/v2/device/scheduler/get"
+_ENDPOINT_OA_SCHEDULER_ENABLE_V3 = "/op/v3/device/scheduler/enable"
+_ENDPOINT_OA_SCHEDULER_GET_V3 = "/op/v3/device/scheduler/get"
 _ENDPOINT_OA_REPORT = "/op/v0/device/report/query"
 _ENDPOINT_OA_DEVICE_DETAIL = "/op/v0/device/detail"
 _ENDPOINT_OA_DEVICE_DETAIL_V1 = "/op/v1/device/detail"

@@ -18,6 +18,7 @@ from .const import (
     ATTR_MASTER,
     DOMAIN,
     FetchResult,
+    SCHEDULER_API_V2,
     _ENDPOINT_OA_DOMAIN,
 )
 
@@ -94,6 +95,9 @@ class FoxESSSchedulerSwitch(CoordinatorEntity, SwitchEntity):
         attrs: dict[str, Any] = {
             "scheduler_groups": data.get("schedulerGroups", []),
             "device_sn": self._device_sn,
+            "scheduler_api_version": getattr(
+                self.coordinator, "scheduler_api_version", SCHEDULER_API_V2
+            ),
             "min_soc": battery.get("minSoc"),
         }
         if "forceChargeTimes" in data:

@@ -99,8 +99,9 @@ async def test_switch_setup_entry_with_battery(hass):
 
 
 def test_scheduler_switch_card_attributes():
-    """The switch exposes what the scheduler card needs: device SN and min SoC."""
+    """The switch exposes what the scheduler card needs: device SN, API version and min SoC."""
     coordinator = MagicMock()
+    coordinator.scheduler_api_version = "v3"
     coordinator.data = {
         "schedulerEnabled": False,
         "schedulerGroups": [],
@@ -110,14 +111,16 @@ def test_scheduler_switch_card_attributes():
         coordinator, "FoxESS", "DEV1", "SN123", "APIKEY"
     ).extra_state_attributes
     assert attrs["device_sn"] == "SN123"
+    assert attrs["scheduler_api_version"] == "v3"
     assert attrs["min_soc"] == 15
 
 
 def test_scheduler_switch_card_attributes_defaults():
-    """Without battery data, min SoC is None."""
+    """Without a configured API version or battery data, defaults to v2 and no min SoC."""
     coordinator = MagicMock(spec=["data"])
     coordinator.data = {"schedulerGroups": []}
     attrs = FoxESSSchedulerSwitch(
         coordinator, "FoxESS", "DEV1", "SN123", "APIKEY"
     ).extra_state_attributes
+    assert attrs["scheduler_api_version"] == "v2"
     assert attrs["min_soc"] is None

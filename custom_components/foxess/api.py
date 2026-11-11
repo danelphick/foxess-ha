@@ -29,9 +29,11 @@ from .const import (
     _ENDPOINT_OA_DOMAIN,
     _ENDPOINT_OA_REPORT,
     _ENDPOINT_OA_SCHEDULER_ENABLE,
+    _ENDPOINT_OA_SCHEDULER_ENABLE_V3,
     _ENDPOINT_OA_SCHEDULER_FLAG_GET,
     _ENDPOINT_OA_SCHEDULER_FLAG_SET,
     _ENDPOINT_OA_SCHEDULER_GET,
+    _ENDPOINT_OA_SCHEDULER_GET_V3,
     _ENDPOINT_OA_SETTING_GET,
     _ENDPOINT_OA_SETTING_SET,
     DEFAULT_TIMEOUT,
@@ -342,6 +344,28 @@ class FoxESSApiClient:
         return await self.async_request(
             "POST",
             _ENDPOINT_OA_SCHEDULER_GET,
+            token,
+            json_data={"deviceSN": sn},
+        )
+
+    async def async_set_scheduler_groups_v3(
+        self, sn: str, token: str, groups: list[dict[str, Any]], is_default: bool = False
+    ) -> tuple[FetchResult, dict[str, Any] | None, float]:
+        """Set mode scheduler time groups using the V3 API."""
+        return await self.async_request(
+            "POST",
+            _ENDPOINT_OA_SCHEDULER_ENABLE_V3,
+            token,
+            json_data={"deviceSN": sn, "isDefault": is_default, "groups": groups},
+        )
+
+    async def async_get_scheduler_groups_v3(
+        self, sn: str, token: str
+    ) -> tuple[FetchResult, dict[str, Any] | None, float]:
+        """Get configured mode scheduler groups using the V3 API."""
+        return await self.async_request(
+            "POST",
+            _ENDPOINT_OA_SCHEDULER_GET_V3,
             token,
             json_data={"deviceSN": sn},
         )

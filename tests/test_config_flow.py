@@ -913,3 +913,78 @@ async def test_async_step_import_with_reduce_api_calls(
     assert result["data"][CONF_REDUCE_API_CALLS] is True
 
 
+
+
+# ---------------------------------------------------------------------------
+# Reconfigure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_reconfigure_updates_api_key_and_scheduler_version(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """Reconfigure saves the new API key and scheduler API version."""
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=MOCK_CONFIG["deviceSN"], data=MOCK_CONFIG)
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    with _patch_fetch_device_list((MOCK_DEVICES, None)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"apiKey": " new-api-key ", "scheduler_api_version": "v3"},
+        )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data["apiKey"] == "new-api-key"
+    assert entry.data["scheduler_api_version"] == "v3"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_reconfigure_drops_api_key_from_options(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """An API key saved in the options cannot override the reconfigured key."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=MOCK_CONFIG["deviceSN"],
+        data=MOCK_CONFIG,
+        options={"apiKey": "old-options-key", "reduceAPICalls": True},
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    with _patch_fetch_device_list((MOCK_DEVICES, None)):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"apiKey": "new-api-key", "scheduler_api_version": "v2"},
+        )
+    await hass.async_block_till_done()
+
+    assert entry.data["apiKey"] == "new-api-key"
+    assert entry.options == {"reduceAPICalls": True}
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_reconfigure_invalid_api_key(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """An invalid API key shows an error and leaves the entry unchanged."""
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=MOCK_CONFIG["deviceSN"], data=MOCK_CONFIG)
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    with _patch_fetch_device_list(([], "invalid_auth")):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"apiKey": "bad-key", "scheduler_api_version": "v3"},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_auth"}
+    assert entry.data["apiKey"] == MOCK_CONFIG["apiKey"]

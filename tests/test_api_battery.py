@@ -160,3 +160,25 @@ async def test_api_force_charge_times():
                 "endTime2": {"hour": 16, "minute": 0},
             },
         )
+
+
+@pytest.mark.asyncio
+async def test_api_scheduler_groups_v3():
+    client = FoxESSApiClient()
+    with patch.object(client, "async_request", new_callable=AsyncMock) as mock_req:
+        mock_req.return_value = (FetchResult.OK, {"errno": 0, "msg": "success"}, 100.0)
+        groups = [{"startHour": 0, "workMode": "SelfUse"}]
+        await client.async_set_scheduler_groups_v3("SN123", "TOKEN", groups)
+        mock_req.assert_called_with(
+            "POST",
+            "/op/v3/device/scheduler/enable",
+            "TOKEN",
+            json_data={"deviceSN": "SN123", "isDefault": False, "groups": groups},
+        )
+        await client.async_get_scheduler_groups_v3("SN123", "TOKEN")
+        mock_req.assert_called_with(
+            "POST",
+            "/op/v3/device/scheduler/get",
+            "TOKEN",
+            json_data={"deviceSN": "SN123"},
+        )

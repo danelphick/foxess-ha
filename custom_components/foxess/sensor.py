@@ -68,6 +68,7 @@ from .const import (
     CONF_GET_VARIABLES,
     CONF_NAME,
     CONF_REDUCE_API_CALLS,
+    CONF_SCHEDULER_API_VERSION,
     CONF_SHOW_UNKNOWN_ZERO,
     CONF_SYSTEM_ID,
     CONF_V1_API,
@@ -82,6 +83,8 @@ from .const import (
     RETRY_IN_10_MINS,
     RETRY_NEXT_SLOT,
     SCAN_INTERVAL,
+    SCHEDULER_API_V2,
+    SCHEDULER_API_V3,
     SCAN_MINUTES,
     YAML_CONFIGS_KEY,
     _AUTH_ERRNO,
@@ -219,6 +222,9 @@ class FoxDataUpdateCoordinator(DataUpdateCoordinator):
         )
         self.reduce_api_calls = bool(
             config.get(CONF_REDUCE_API_CALLS, DEFAULT_REDUCE_API_CALLS)
+        )
+        self.scheduler_api_version = config.get(
+            CONF_SCHEDULER_API_VERSION, SCHEDULER_API_V2
         )
         self.daily_gen_interval = 60 if self.reduce_api_calls else 15
         self.daily_gen_retry_interval = 10 if self.reduce_api_calls else 5
@@ -360,7 +366,13 @@ class FoxDataUpdateCoordinator(DataUpdateCoordinator):
                         await getOABatterySettings(self.hass, allData, devicesn, apiKey)
                         await asyncio.sleep(1)  # OpenAPI demand
                         if allData.get("addressbook", {}).get("hasBattery"):
-                            await getOAWorkModeAndScheduler(self.hass, allData, devicesn, apiKey)
+                            await getOAWorkModeAndScheduler(
+                                self.hass,
+                                allData,
+                                devicesn,
+                                apiKey,
+                                scheduler_api_version=self.scheduler_api_version,
+                            )
                     # main real time data fetch, followed by reports
                     geterror = await getRaw(
                         self.hass, allData, apiKey, devicesn, reduce_api_calls=reduce_api_calls
@@ -809,7 +821,9 @@ async def getOABatterySettings(hass, allData, devicesn, apiKey):
         return FetchResult.OK
 
 
-async def getOAWorkModeAndScheduler(hass, allData, devicesn, apiKey):
+async def getOAWorkModeAndScheduler(
+    hass, allData, devicesn, apiKey, scheduler_api_version=SCHEDULER_API_V2
+):
     """Fetch Work Mode and Scheduler flag/groups from FoxESS Cloud."""
     client = FoxESSApiClient(hass)
     try:
@@ -833,7 +847,11 @@ async def getOAWorkModeAndScheduler(hass, allData, devicesn, apiKey):
                 allData["schedulerEnabled"] = bool(enable)
         await asyncio.sleep(1)
 
-        res_grp, resp_grp, _ = await client.async_get_scheduler_groups(devicesn, apiKey)
+        if scheduler_api_version == SCHEDULER_API_V3:
+            get_groups = client.async_get_scheduler_groups_v3
+        else:
+            get_groups = client.async_get_scheduler_groups
+        res_grp, resp_grp, _ = await get_groups(devicesn, apiKey)
         if res_grp is FetchResult.OK and resp_grp and resp_grp.get("errno") == 0:
             result_grp = resp_grp.get("result", {})
             groups = result_grp.get("groups")

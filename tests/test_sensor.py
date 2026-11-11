@@ -1575,3 +1575,35 @@ class TestFoxESSBatMinSoConGrid:
     def test_returns_none_when_offline(self) -> None:
         """Returns None when the inverter is offline."""
         assert self._make({"online": False, "battery": {"minSocOnGrid": 20}}).native_value is None
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_get_oa_work_mode_and_scheduler_uses_v3_groups(hass: HomeAssistant):
+    """With the V3 scheduler API configured, groups are read from the V3 endpoint."""
+    all_data = {"workMode": None, "schedulerEnabled": False, "schedulerGroups": []}
+    groups_payload = {"errno": 0, "result": {"groups": [{"startHour": 2, "workMode": "ForceCharge"}]}}
+
+    with patch.object(
+        sensor.FoxESSApiClient,
+        "async_get_work_mode",
+        new_callable=AsyncMock,
+        return_value=(sensor.FetchResult.ERROR, None, 50),
+    ), patch.object(
+        sensor.FoxESSApiClient,
+        "async_get_scheduler_flag",
+        new_callable=AsyncMock,
+        return_value=(sensor.FetchResult.ERROR, None, 50),
+    ), patch.object(
+        sensor.FoxESSApiClient, "async_get_scheduler_groups", new_callable=AsyncMock
+    ) as get_v2, patch.object(
+        sensor.FoxESSApiClient,
+        "async_get_scheduler_groups_v3",
+        new_callable=AsyncMock,
+        return_value=(sensor.FetchResult.OK, groups_payload, 50),
+    ), patch("custom_components.foxess.sensor.asyncio.sleep", new_callable=AsyncMock):
+        await sensor.getOAWorkModeAndScheduler(
+            hass, all_data, "SN1", "key1", scheduler_api_version="v3"
+        )
+
+    get_v2.assert_not_called()
+    assert all_data["schedulerGroups"] == groups_payload["result"]["groups"]

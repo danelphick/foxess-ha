@@ -15,7 +15,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN, FetchResult
+from .const import DOMAIN, SCHEDULER_API_V3, FetchResult
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,7 +82,33 @@ async def set_scheduler_flag(coordinator, enable: bool) -> tuple[FetchResult, st
 
 
 async def set_scheduler_groups(coordinator, groups: list) -> tuple[FetchResult, str]:
-    """Save the schedule to FoxESS Cloud.
+    """Save the schedule to FoxESS Cloud using the device's scheduler API version."""
+    if getattr(coordinator, "scheduler_api_version", None) == SCHEDULER_API_V3:
+        return await _set_scheduler_groups_v3(coordinator, groups)
+    return await _set_scheduler_groups_v2(coordinator, groups)
+
+
+async def _set_scheduler_groups_v3(coordinator, groups: list) -> tuple[FetchResult, str]:
+    """Save the schedule using the V3 API.
+
+    All groups — including the 00:00–23:59 remaining slot — are sent directly to
+    the V3 scheduler endpoint. V3 does not support per-group enable flags, and
+    the remaining slot is a native first-class group in the API.
+    """
+    if not groups:
+        return FetchResult.OK, ""
+    result, resp, _ = await coordinator.client.async_set_scheduler_groups_v3(
+        coordinator.devicesn, coordinator.apiKey, groups
+    )
+    if result is not FetchResult.OK:
+        _LOGGER.error("set_scheduler_groups (V3): bad response %s", resp)
+        return result, _result_message(result, resp)
+    _LOGGER.debug("set_scheduler_groups (V3): success")
+    return FetchResult.OK, ""
+
+
+async def _set_scheduler_groups_v2(coordinator, groups: list) -> tuple[FetchResult, str]:
+    """Save the schedule using the V2 API.
 
     The remaining time slot (00:00–23:59) is handled separately: its minSocOnGrid
     is written via the battery SoC settings and maxSoc via the MaxSoc device

@@ -354,3 +354,55 @@ async def test_setup_registers_commands_once(hass) -> None:
         "foxess/save_template",
     ]
     assert scheduler._TEMPLATES_STORE_KEY in hass.data
+
+
+@pytest.mark.asyncio
+class TestSetSchedulerGroupsV3:
+    """Tests for set_scheduler_groups with the V3 scheduler API."""
+
+    _REMAINING = {
+        "startHour": 0,
+        "startMinute": 0,
+        "endHour": 23,
+        "endMinute": 59,
+        "workMode": "SelfUse",
+        "extraParam": {"minSocOnGrid": 30, "maxSoc": 90},
+    }
+
+    def _coordinator(self, client=None) -> MagicMock:
+        client = client or _client()
+        client.async_set_scheduler_groups_v3 = AsyncMock(return_value=_OK)
+        coordinator = _coordinator(scheduler_enabled=True, client=client)
+        coordinator.scheduler_api_version = "v3"
+        return coordinator
+
+    async def test_sends_all_groups_including_remaining(self) -> None:
+        """All groups, including the remaining slot, go to the V3 endpoint unchanged."""
+        coordinator = self._coordinator()
+        client = coordinator.client
+        result, _ = await scheduler.set_scheduler_groups(coordinator, [_GROUP, self._REMAINING])
+        assert result is FetchResult.OK
+        client.async_set_scheduler_groups_v3.assert_called_once_with(
+            "SN1", "key", [_GROUP, self._REMAINING]
+        )
+        client.async_set_scheduler_groups.assert_not_called()
+        client.async_set_battery_soc.assert_not_called()
+        client.async_set_device_setting.assert_not_called()
+        client.async_set_scheduler_flag.assert_not_called()
+
+    async def test_no_call_for_empty_schedule(self) -> None:
+        """An empty schedule is not sent."""
+        coordinator = self._coordinator()
+        result, _ = await scheduler.set_scheduler_groups(coordinator, [])
+        assert result is FetchResult.OK
+        coordinator.client.async_set_scheduler_groups_v3.assert_not_called()
+
+    async def test_error(self) -> None:
+        """Returns the API error message on failure."""
+        coordinator = self._coordinator()
+        coordinator.client.async_set_scheduler_groups_v3 = AsyncMock(
+            return_value=(FetchResult.AUTH_FAILED, {"msg": "bad key"}, 10)
+        )
+        result, msg = await scheduler.set_scheduler_groups(coordinator, [_GROUP])
+        assert result is FetchResult.AUTH_FAILED
+        assert msg == "bad key"
