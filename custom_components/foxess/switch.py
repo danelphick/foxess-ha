@@ -88,10 +88,13 @@ class FoxESSSchedulerSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return scheduler groups and force charge times as entity attributes."""
+        """Return scheduler groups, force charge times and scheduler card details."""
         data = getattr(self.coordinator, "data", {}) or {}
+        battery = data.get("battery") or {}
         attrs: dict[str, Any] = {
             "scheduler_groups": data.get("schedulerGroups", []),
+            "device_sn": self._device_sn,
+            "min_soc": battery.get("minSoc"),
         }
         if "forceChargeTimes" in data:
             attrs["force_charge_times"] = data.get("forceChargeTimes")

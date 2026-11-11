@@ -43,6 +43,21 @@ async def test_api_set_and_get_work_mode():
 
 
 @pytest.mark.asyncio
+async def test_api_set_device_setting():
+    client = FoxESSApiClient()
+    with patch.object(client, "async_request", new_callable=AsyncMock) as mock_req:
+        mock_req.return_value = (FetchResult.OK, {"errno": 0, "msg": "success"}, 100.0)
+        res, _, _ = await client.async_set_device_setting("SN123", "TOKEN", "MaxSoc", "90")
+        assert res == FetchResult.OK
+        mock_req.assert_called_with(
+            "POST",
+            "/op/v0/device/setting/set",
+            "TOKEN",
+            json_data={"sn": "SN123", "key": "MaxSoc", "value": "90"},
+        )
+
+
+@pytest.mark.asyncio
 async def test_api_scheduler_flag_and_groups():
     client = FoxESSApiClient()
     with patch.object(client, "async_request", new_callable=AsyncMock) as mock_req:

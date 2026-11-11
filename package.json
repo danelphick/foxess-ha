@@ -1,0 +1,12 @@
+{
+  "name": "foxess-ha",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:js": "vitest run"
+  },
+  "devDependencies": {
+    "happy-dom": "^17",
+    "vitest": "^3"
+  }
+}

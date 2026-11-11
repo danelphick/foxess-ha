@@ -274,16 +274,22 @@ class FoxESSApiClient:
         """Fetch battery SoC and minSoc settings."""
         return await self.async_get_battery_settings(sn, token)
 
-    async def async_set_work_mode(
-        self, sn: str, token: str, mode: str
+    async def async_set_device_setting(
+        self, sn: str, token: str, key: str, value: str
     ) -> tuple[FetchResult, dict[str, Any] | None, float]:
-        """Set inverter work mode."""
+        """Set a single inverter setting, e.g. WorkMode or MaxSoc."""
         return await self.async_request(
             "POST",
             _ENDPOINT_OA_SETTING_SET,
             token,
-            json_data={"sn": sn, "key": "WorkMode", "value": mode},
+            json_data={"sn": sn, "key": key, "value": value},
         )
+
+    async def async_set_work_mode(
+        self, sn: str, token: str, mode: str
+    ) -> tuple[FetchResult, dict[str, Any] | None, float]:
+        """Set inverter work mode."""
+        return await self.async_set_device_setting(sn, token, "WorkMode", mode)
 
     async def async_get_work_mode(
         self, sn: str, token: str

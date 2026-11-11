@@ -14,6 +14,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .api import FoxESSApiClient
 from .const import DOMAIN, FetchResult, MAX_SCHEDULER_GROUPS
+from .scheduler import async_setup_scheduler_card
 from .sensor import FoxDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -204,6 +205,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     async_setup_services(hass)
+    await async_setup_scheduler_card(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

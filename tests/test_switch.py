@@ -96,3 +96,28 @@ async def test_switch_setup_entry_with_battery(hass):
         assert len(entities) == 1
         assert isinstance(entities[0], FoxESSSchedulerSwitch)
         assert entities[0].name == "FoxInverter - Mode Scheduler"
+
+
+def test_scheduler_switch_card_attributes():
+    """The switch exposes what the scheduler card needs: device SN and min SoC."""
+    coordinator = MagicMock()
+    coordinator.data = {
+        "schedulerEnabled": False,
+        "schedulerGroups": [],
+        "battery": {"minSoc": 15},
+    }
+    attrs = FoxESSSchedulerSwitch(
+        coordinator, "FoxESS", "DEV1", "SN123", "APIKEY"
+    ).extra_state_attributes
+    assert attrs["device_sn"] == "SN123"
+    assert attrs["min_soc"] == 15
+
+
+def test_scheduler_switch_card_attributes_defaults():
+    """Without battery data, min SoC is None."""
+    coordinator = MagicMock(spec=["data"])
+    coordinator.data = {"schedulerGroups": []}
+    attrs = FoxESSSchedulerSwitch(
+        coordinator, "FoxESS", "DEV1", "SN123", "APIKEY"
+    ).extra_state_attributes
+    assert attrs["min_soc"] is None
